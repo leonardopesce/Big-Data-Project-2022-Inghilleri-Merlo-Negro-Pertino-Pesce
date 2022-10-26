@@ -12,14 +12,12 @@ CITE_PATH = "output_cite.csv"
 def log(log_message: str):
     print(f'--- {log_message} ---')
 
-def reduce_article_frame() -> pd.DataFrame:
-    log("STARTING REDUCING ARTICLE FRAME")
-    log("STARTING LOADING ARTICLE DATA")
-    article_frame = pd.read_csv(ARTICLE_PATH, sep=";", low_memory=False)
-    log("FINISHED LOADING ARTICLE DATA")
-    reduced_article_frame = pd.DataFrame({'ArticleId': article_frame.iloc[:, 0], 'key': article_frame.iloc[:, 16]})
-    log("FINISHED REDUCING ARTICLE FRAME")
-    return reduced_article_frame
+def reduce_frame(path: str, first_column_label: str, first_column_index : int, second_column_label : str, second_column_index : int) -> pd.DataFrame:
+    log("STARTING LOADING DATA")
+    frame = pd.read_csv(path, sep = ";", low_memory=False)
+    log("FINISHED LOADING DATA")
+    reduced_frame = pd.DataFrame({f"{first_column_label}" : frame.iloc[:, first_column_index], f"{second_column_label}" : frame.iloc[:, second_column_index]})
+    return reduced_frame
 
 def merge_cite_nodes() -> pd.DataFrame:
     log("STARTING CITE NODE MERGE")
@@ -45,69 +43,47 @@ def merge_cite_nodes() -> pd.DataFrame:
     log("PARTIAL MERGE ENDED. FILE STORED AS output_cite_merged.csv")
     return merged_frame
 
-def reduce_book_frame() -> pd.DataFrame:
-    log("STARTING REDUCING BOOK FRAME")
-    log("STARTING LOADING BOOK DATA")
-    book_frame = pd.read_csv(BOOK_PATH, sep=";", low_memory=False)
-    log("FINISHED LOADING BOOK DATA")
-    reduced_book_frame = pd.DataFrame({'ArticleId': book_frame.iloc[:, 0], 'key': book_frame.iloc[:, 16]})
-    log("FINISHED REDUCING BOOK FRAME")
-    return reduced_book_frame
-
-def reduce_incollection_frame() -> pd.DataFrame:
-    log("STARTING REDUCING INCOLLECTION FRAME")
-    log("STARTING LOADING INCOLLECTION DATA")
-    incollection_frame = pd.read_csv(INCOLLECTION_PATH, sep=";", low_memory=False)
-    log("FINISHED LOADING INCOLLECTION DATA")
-    reduced_incollection_frame = pd.DataFrame({'ArticleId': incollection_frame.iloc[:, 0], 'key': incollection_frame.iloc[:, 12]})
-    log("FINISHED REDUCING INCOLLECTION FRAME")
-    return reduced_incollection_frame
-
-def reduce_inproceedings_frame() -> pd.DataFrame:
-    log("STARTING REDUCING INPROCEEDINGS FRAME")
-    log("STARTING LOADING INPROCEEDINGS DATA")
-    inproceedings_frame = pd.read_csv(INPROCEEDINGS_PATH, sep=";", low_memory=False)
-    log("FINISHED LOADING INPROCEEDINGS DATA")
-    reduced_inproceedings_frame = pd.DataFrame({'ArticleId': inproceedings_frame.iloc[:, 0], 'key': inproceedings_frame.iloc[:, 14]})
-    log("FINISHED REDUCING INPROCEEDINGS FRAME")
-    return reduced_inproceedings_frame
-
-def reduce_proceedings_frame() -> pd.DataFrame:
-    log("STARTING REDUCING PROCEEDINGS FRAME")
-    log("STARTING LOADING PROCEEDINGS DATA")
-    proceedings_frame = pd.read_csv(PROCEEDINGS_PATH, sep=";", low_memory=False)
-    log("FINISHED LOADING PROCEEDINGS DATA")
-    reduced_proceedings_frame = pd.DataFrame({'ArticleId': proceedings_frame.iloc[:, 0], 'key': proceedings_frame.iloc[:, 14]})
-    log("FINISHED REDUCING PROCEEDINGS FRAME")
-    return reduced_proceedings_frame
-
-def reduce_www_frame() -> pd.DataFrame:
-    log("STARTING REDUCING WWW FRAME")
-    log("STARTING LOADING WWW DATA")
-    www_frame = pd.read_csv(WWW_PATH, sep=";", low_memory=False)
-    log("FINISHED LOADING WWW DATA")
-    reduced_www_frame = pd.DataFrame({'ArticleId': www_frame.iloc[:, 0], 'key': www_frame.iloc[:, 7]})
-    log("FINISHED REDUCING WWW FRAME")
-    return reduced_www_frame
-
 def concat_all_publication_frames(reduced_article_frame : pd.DataFrame, reduced_book_frame : pd.DataFrame, reduced_incollection_frame : pd.DataFrame, reduced_inproceedings_frame : pd.DataFrame, reduced_proceedings_frame : pd.DataFrame, reduced_www_frame : pd.DataFrame) -> pd.DataFrame:
     log("STARTED CONCATENATING FRAMES")
     
     return pd.concat([reduced_article_frame, reduced_book_frame, reduced_incollection_frame, reduced_inproceedings_frame, reduced_proceedings_frame, reduced_www_frame])
 
-def compile_cite_relationship(concatenated_publications_frame, cite_notes_merged):
-    log("CREATING CITE RELATIONSHIP")
-    merged_frame = pd.merge(cite_notes_merged, concatenated_publications_frame)
+def compile_relationship(frame_1 : pd.DataFrame, frame_2 : pd.DataFrame) -> pd.DataFrame:
+    merged_frame = pd.merge(frame_1, frame_2)
     merged_frame = pd.DataFrame({':START_ID': merged_frame.iloc[:, 0], ':END_ID' : merged_frame.iloc[:, 2]})
-    log("FINISHED CREATING CITE RELATIONSHIP")
     return merged_frame
 
 def main():
-    concatenated_publications_frame = concat_all_publication_frames(reduce_article_frame(), reduce_book_frame(), reduce_incollection_frame(), reduce_inproceedings_frame(), reduce_proceedings_frame(), reduce_www_frame())
+    log("STARTING REDUCING ARTICLE FRAME")
+    article_frame = reduce_frame(ARTICLE_PATH, "ArticleId", 0, "key", 16)
+    log("FINISHED REDUCING ARTICLE FRAME")
+    log("STARTING REDUCING BOOK FRAME")
+    book_frame = reduce_frame(BOOK_PATH, "ArticleId", 0, "key", 16)
+    log("FINISHED REDUCING BOOK FRAME")
+    log("STARTING REDUCING INCOLLECTION FRAME")
+    incollection_frame = reduce_frame(INCOLLECTION_PATH, "ArticleId", 0, "key", 12)
+    log("FINISHED REDUCING INCOLLECTION FRAME")
+    log("STARTING REDUCING INPROCEEDINGS FRAME")
+    inproceedings_frame = reduce_frame(INPROCEEDINGS_PATH, "ArticleId", 0, "key", 14)
+    log("FINISHED REDUCING INPROCEEDINGS FRAME")
+    log("STARTING REDUCING PROCEEDINGS FRAME")
+    proceedings_frame = reduce_frame(PROCEEDINGS_PATH, "ArticleId", 0, "key", 14)
+    log("FINISHED REDUCING PROCEEDINGS FRAME")
+    log("STARTING REDUCING HOMEPAGES FRAME")
+    www_frame = reduce_frame(WWW_PATH, "ArticleId", 0, "key", 7)
+    log("FINISHED REDUCING HOMEPAGES FRAME")
+
+    concatenated_publications_frame = concat_all_publication_frames(article_frame, book_frame, incollection_frame, inproceedings_frame, proceedings_frame, www_frame)
     log("FINISHED CONCATENATING FRAMES")
-    cite_relationship = compile_cite_relationship(concatenated_publications_frame, merge_cite_nodes())
+
+    log("STARTED BUILDING CITE AND BELONG RELATIONSHIPS")
+    cite_relationship = compile_relationship(merge_cite_nodes(), concatenated_publications_frame)
+    belong_relationship = compile_relationship(reduce_frame(INPROCEEDINGS_PATH, "DocIdA", 0, "key", 8), reduce_frame(PROCEEDINGS_PATH, "DocIdB", 0, "key", 14))
     cite_relationship.to_csv("output_cite_relationship.csv", sep=";",index=False)
-    log("CITE RELATIONSHIP SAVED INTO output_cite_relationship.csv. ENDING...")
+    belong_relationship.to_csv("output_belong_relationship.csv", sep=";", index=False)
+    log("CITE RELATIONSHIP SAVED INTO output_cite_relationship.csv.")
+    log("BELONG RELATIONSHIP SAVED INTO output_belong_relationship.csv.")
+    log("ENDING")
 
 if __name__ == "__main__":
     main()
