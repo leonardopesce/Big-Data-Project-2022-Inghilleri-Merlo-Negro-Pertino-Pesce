@@ -1,4 +1,31 @@
+####################################################################################################
+#                    ___                                                                           #
+#                  //   \\                                                                         #
+#                 ||=====||                                                                        #
+#                  \\___//                                                                         #
+#                   ./O           System and Methods for Big and Unstructured Data - Group 2       #
+#               ___/ //|\\                                                                         #
+#              / o    /}                           Riccardo Inghilleri                             #
+#             (       /                               Manuela Merlo                                #
+#             \      /                                 Matteo Negro                                #
+#             |     (                                 Paolo Pertino                                #
+#             |      \                               Leonardo Pesce                                #
+#             )       \                                                                            #
+#            /         \                                                                           #
+#          /            )                                                                          #    
+#        /              |                                                                          #
+#      //             / /                                                                          #
+#    /       ___(    ,| \                                                                          #
+#  /       /    \     |  \                                                                         #
+# (      /  /   /\     \  \                                                                        #
+# \\   /___ _-_//'|     |  |                                                                       #
+#  \\_______-/     \     \  \                                                                      #
+#                   \-_-_-_-_-                                                                     #
+####################################################################################################
 import pandas as pd
+import numpy as np
+
+from ast import literal_eval
 
 BOOK_PATH = "output_book.csv"
 INCOLLECTION_PATH = "output_incollection.csv"
@@ -8,9 +35,38 @@ WWW_PATH = "output_www.csv"
 ARTICLE_PATH = "output_article.csv"
 HAS_CITATIONS_PATH = "output_cite_has_citation.csv"
 CITE_PATH = "output_cite.csv"
+AUTHORS_DATA_PATH = "authors.csv"
+AUTHORS_NODE_PATH = "output_author.csv"
 
 def log(log_message: str):
     print(f'--- {log_message} ---')
+
+def authors_additional_information():
+    log("STARTED LOADING DETAILED AUTHORS DATA")
+    author_data = pd.read_csv(AUTHORS_DATA_PATH, sep="\t", engine='python')
+    log("FINISHED LOADING DETAILED AUTHORS DATA")
+    log("STARTED LOADING AUTHORS NODES")
+    author_node = pd.read_csv(AUTHORS_NODE_PATH, sep=";")
+    log("FINISHED LOADING AUTHORS NODES")
+
+    # Dropping authors which doesn't have an alias on DBLP (we are only looking at dblp entries).
+    author_data = author_data[author_data['externalids.DBLP'].notna()]
+    author_data.drop(['authorid', 'externalids', 'aliases', 'updated'], axis=1, inplace=True)
+
+    # Each author in DBLP can be recognized in different ways. In the dataset we used they were stored in an array. We explode that array, replicating 
+    # for each possible alias the whole information of the author.
+    author_data['externalids.DBLP'] = author_data['externalids.DBLP'].apply(literal_eval)
+    n_author_data = author_data.explode('externalids.DBLP')
+
+    # Merging the two dataframes on the DBLP name attribute
+    author_node.rename(columns={'author:string' : 'key'}, inplace=True)
+    n_author_data.rename(columns={'externalids.DBLP' : 'key'}, inplace=True)
+    merged_frame = pd.merge(author_node, n_author_data, on = 'key')
+    merged_frame.drop(["key"], axis=1, inplace=True)
+
+    log("FINISHED INTEGRATING AUTHORS INFORMATION")
+
+    return merged_frame
 
 def reduce_frame(path: str, first_column_label: str, first_column_index : int, second_column_label : str, second_column_index : int) -> pd.DataFrame:
     log("STARTING LOADING DATA")
@@ -75,6 +131,9 @@ def main():
 
     concatenated_publications_frame = concat_all_publication_frames(article_frame, book_frame, incollection_frame, inproceedings_frame, proceedings_frame, www_frame)
     log("FINISHED CONCATENATING FRAMES")
+
+    authors_data = authors_additional_information()
+    authors_data.to_csv("output_author_extended.csv", sep=";", index=False)
 
     log("STARTED BUILDING CITE AND BELONG RELATIONSHIPS")
     cite_relationship = compile_relationship(merge_cite_nodes(), concatenated_publications_frame)
