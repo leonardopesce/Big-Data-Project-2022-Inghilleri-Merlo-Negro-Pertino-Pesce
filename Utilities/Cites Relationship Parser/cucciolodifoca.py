@@ -63,10 +63,14 @@ def authors_additional_information():
     n_author_data.rename(columns={'externalids.DBLP' : 'key'}, inplace=True)
     merged_frame = pd.merge(author_node, n_author_data, on = 'key')
     merged_frame.drop(["key"], axis=1, inplace=True)
+    merged_frame.drop_duplicates([':ID'], inplace=True)
 
+    author_node.rename(columns={'key' : 'name'}, inplace=True)
+    final_frame = pd.concat([merged_frame, author_node])
+    final_frame.drop_duplicates([':ID'], keep='first', inplace=True)
     log("FINISHED INTEGRATING AUTHORS INFORMATION")
 
-    return merged_frame
+    return final_frame
 
 def reduce_frame(path: str, first_column_label: str, first_column_index : int, second_column_label : str, second_column_index : int) -> pd.DataFrame:
     log("STARTING LOADING DATA")
