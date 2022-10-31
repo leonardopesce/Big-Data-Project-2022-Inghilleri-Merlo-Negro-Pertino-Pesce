@@ -27,6 +27,10 @@ import numpy as np
 
 from ast import literal_eval
 
+####################################################################################################
+#                                             PATHS                                                #
+####################################################################################################
+
 BOOK_PATH = "output_book.csv"
 INCOLLECTION_PATH = "output_incollection.csv"
 INPROCEEDINGS_PATH = "output_inproceedings.csv"
@@ -34,6 +38,7 @@ PROCEEDINGS_PATH = "output_proceedings.csv"
 ARTICLE_PATH = "output_article.csv"
 HAS_CITATIONS_PATH = "output_cite_has_citation.csv"
 CITE_PATH = "output_cite.csv"
+CITE_RELATIONSHIP = "output_cite_relationship.csv"
 AUTHORS_DATA_PATH = "authors.csv"
 AUTHORS_NODE_PATH = "output_author.csv"
 BELONG_TO_PATH = "output_belong_relationship.csv"
@@ -45,6 +50,15 @@ INPROCEEDINGS_HEADER_PATH = "output_inproceedings_header.csv"
 ARTICLE_HEADER_PATH = "output_article_header.csv"
 BOOK_HEADER_PATH = "output_book_header.csv"
 PROCEEDINGS_HEADER_PATH = "output_proceedings_header.csv"
+WWW_PATH = "output_www.csv"
+INCOLLECTION_PATH = "output_incollection.csv"
+AUTHORED_BY_PATH = "output_author_authored_by.csv"
+PUBLISHED_BY_PATH = "output_publisher_published_by.csv"
+EDITED_BY_PATH = "output_editor_edited_by.csv"
+
+####################################################################################################
+#                                         PARSER FUNCTIONS                                         # 
+####################################################################################################
 
 def log(log_message: str):
     print(f'--- {log_message} ---')
@@ -72,11 +86,11 @@ def authors_additional_information():
     merged_frame = pd.merge(author_node, n_author_data, how='left', on = 'key')
     merged_frame.drop(["key"], axis=1, inplace=True)
     merged_frame.drop_duplicates([':ID'], inplace=True)
-    print(merged_frame)
+    # print(merged_frame)
     author_node.rename(columns={'key' : 'name'}, inplace=True)
     final_frame = pd.concat([merged_frame, author_node])
     final_frame.drop_duplicates([':ID'], keep='first', inplace=True)
-    print(final_frame)
+    # print(final_frame)
     log("FINISHED INTEGRATING AUTHORS INFORMATION")
 
     return final_frame
@@ -149,7 +163,7 @@ def update_published_in_relationship():
 
 def update_part_of_relationship():
     part_of_frame = pd.read_csv(PART_OF_PATH, sep=";")
-    book_frame = pd.read_csv(BOOK_PATH, sep=";", header=None)
+    book_frame = pd.read_csv(BOOK_PATH, sep=";", header=None, low_memory=False)
     proceedings_frame = pd.read_csv(PROCEEDINGS_PATH, sep=";", header=None, low_memory=False)
 
     reduced_book_frame = pd.DataFrame({":START_ID" : book_frame.iloc[:, 0], "volume" : book_frame.iloc[:, 32]})
@@ -160,6 +174,69 @@ def update_part_of_relationship():
     merged_frame = pd.merge(reduced_part_of_frame, book_and_proceedings_frame, on=':START_ID')
     merged_frame.to_csv(PART_OF_PATH, sep = ";", index=False)
 
+def update_cites_relationship():
+    cites_frame = pd.read_csv(CITE_RELATIONSHIP, sep = ";", low_memory=False)
+    homepage_frame = pd.read_csv(WWW_PATH, sep = ";", low_memory=False)
+    homepage_frame_start = pd.DataFrame({':START_ID' : homepage_frame.iloc[:, 0]})
+    homepage_frame_end = pd.DataFrame({':END_ID' : homepage_frame.iloc[:, 0]})
+    incollection_frame = pd.read_csv(INCOLLECTION_PATH, sep = ";", low_memory=False)
+    incollection_frame_start = pd.DataFrame({':START_ID' : incollection_frame.iloc[:, 0]})
+    incollection_frame_end = pd.DataFrame({':END_ID' : incollection_frame.iloc[:, 0]})
+    general_frame_start = pd.concat([homepage_frame_start, incollection_frame_start])
+    general_frame_end = pd.concat([homepage_frame_end, incollection_frame_end])
+
+    # Cutting off the homepages and incollections from the cites relationship
+    reduced_frame_start = pd.merge(cites_frame, general_frame_start, on=[':START_ID'])
+    cond_start = cites_frame[':START_ID'].isin(reduced_frame_start[':START_ID'])
+    cites_frame.drop(cites_frame[cond_start].index, inplace = True)
+    reduced_frame_end = pd.merge(cites_frame, general_frame_end, on=[':END_ID'])
+    cond_end = cites_frame[':END_ID'].isin(reduced_frame_end[':END_ID'])
+    cites_frame.drop(cites_frame[cond_end].index, inplace = True)
+
+    # Saving the new cites
+    cites_frame.to_csv(CITE_RELATIONSHIP, sep=";", index=False)
+
+def update_authoredby_relationship():
+    authoredby_frame = pd.read_csv(AUTHORED_BY_PATH, sep = ";", low_memory=False)
+    homepage_frame = pd.read_csv(WWW_PATH, sep = ";", low_memory=False, header=None)
+    homepage_frame = pd.DataFrame({':START_ID' : homepage_frame.iloc[:, 0]})
+    incollection_frame = pd.read_csv(INCOLLECTION_PATH, sep = ";", low_memory=False, header=None)
+    incollection_frame = pd.DataFrame({':START_ID' : incollection_frame.iloc[:, 0]})
+    general_frame = pd.concat([homepage_frame, incollection_frame])
+
+    # Cutting off the homepages and incollections from the authoredby relationship
+    reduced_frame = pd.merge(authoredby_frame, general_frame, on=[':START_ID'])
+    cond = authoredby_frame[':START_ID'].isin(reduced_frame[':START_ID'])
+    authoredby_frame.drop(authoredby_frame[cond].index, inplace = True)
+
+    # Saving the new authoredby rels.
+    authoredby_frame.to_csv(AUTHORED_BY_PATH[:len(AUTHORED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+
+def update_publishedby_relationship():
+    publishedby_frame = pd.read_csv(PUBLISHED_BY_PATH, sep = ";", low_memory=False)
+    incollection_frame = pd.read_csv(INCOLLECTION_PATH, sep = ";", low_memory=False, header=None)
+    incollection_frame = pd.DataFrame({':START_ID' : incollection_frame.iloc[:, 0]})
+
+    # Cutting off the incollections from the publishedby relationship
+    reduced_frame = pd.merge(publishedby_frame, incollection_frame, on=[':START_ID'])
+    cond = publishedby_frame[':START_ID'].isin(reduced_frame[':START_ID'])
+    publishedby_frame.drop(publishedby_frame[cond].index, inplace = True)
+
+    # Saving the new publishedby rel.
+    publishedby_frame.to_csv(PUBLISHED_BY_PATH[:len(PUBLISHED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+
+def update_editedby_relationship():
+    editedby_frame = pd.read_csv(EDITED_BY_PATH, sep = ";", low_memory=False)
+    homepage_frame = pd.read_csv(WWW_PATH, sep = ";", low_memory=False, header=None)
+    homepage_frame = pd.DataFrame({':START_ID' : homepage_frame.iloc[:, 0]})
+
+    # Cutting off the incollections from the publishedby relationship
+    reduced_frame = pd.merge(editedby_frame, homepage_frame, on=[':START_ID'])
+    cond = editedby_frame[':START_ID'].isin(reduced_frame[':START_ID'])
+    editedby_frame.drop(editedby_frame[cond].index, inplace = True)
+
+    # Saving the new publishedby rel.
+    editedby_frame.to_csv(EDITED_BY_PATH[:len(EDITED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
 
 def clean_fields(path: str, field_idx: list):
     log(f"STARTING LOADING {path} DATA")
@@ -206,10 +283,19 @@ def main():
     log("CITE RELATIONSHIP SAVED INTO output_cite_relationship.csv.")
     log("BELONG RELATIONSHIP SAVED INTO output_belong_relationship.csv.")
 
+    # Cleaning up relationships
     log("UPDATING PUBLISHED IN RELATIONSHIP")
     update_published_in_relationship()
     log("UPDATING PART OF RELATIONSHIP")
     update_part_of_relationship()
+    log("UPDATING CITES RELATIONSHIP")
+    update_cites_relationship()
+    log("UPDATING AUTHORED BY RELATIONSHIP")
+    update_authoredby_relationship()
+    log("UPDATING PUBLISHED BY RELATIONSHIP")
+    update_publishedby_relationship()
+    log("UPDATING EDITED BY RELATIONSHIP")
+    update_editedby_relationship()
     
     # Delete useless phdthesis, inproceedings, articles, book, proceedings properties
     log("CLEANING USELESS PROPERTIES OF THE ENTITIES")
@@ -226,7 +312,14 @@ def main():
     log("ENDING")
 
 def test():
-    clean_fields(ARTICLE_PATH, [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15, 22, 23, 24, 25, 27, 28, 30, 31, 33])
+    log("UPDATING CITES RELATIONSHIP")
+    update_cites_relationship()
+    log("UPDATING AUTHORED BY RELATIONSHIP")
+    update_authoredby_relationship()
+    log("UPDATING PUBLISHED BY RELATIONSHIP")
+    update_publishedby_relationship()
+    log("UPDATING EDITED BY RELATIONSHIP")
+    update_editedby_relationship()
 
 if __name__ == "__main__":
     # main()
