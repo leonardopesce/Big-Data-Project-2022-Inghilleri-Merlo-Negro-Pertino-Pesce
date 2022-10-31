@@ -322,5 +322,5 @@ def test():
     update_editedby_relationship()
 
 if __name__ == "__main__":
-    # main()
-    test()
+    # test()
+    main()
