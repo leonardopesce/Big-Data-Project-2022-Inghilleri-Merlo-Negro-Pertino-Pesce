@@ -25,6 +25,8 @@
 import pandas as pd
 import numpy as np
 
+from os import system, name
+
 from ast import literal_eval
 
 ####################################################################################################
@@ -59,17 +61,18 @@ EDITED_BY_PATH = "output_editor_edited_by.csv"
 ####################################################################################################
 #                                         PARSER FUNCTIONS                                         # 
 ####################################################################################################
+#                                              Neo4J                                               #
+####################################################################################################
 
-def log(log_message: str):
-    print(f'--- {log_message} ---')
+def authors_additional_information() -> pd.DataFrame:
+    """Given the csv file containing the authors from dblp and the one coming from Semantic Scholar, it extends the data contained in the first dataset
+        with the all the additional information contained in the second one.
 
-def authors_additional_information():
-    log("STARTED LOADING DETAILED AUTHORS DATA")
+    Returns:
+        pd.Dataframe: a dataframe containing the information about the authors merged together.
+    """
     author_data = pd.read_csv(AUTHORS_DATA_PATH, sep="\t", engine='python')
-    log("FINISHED LOADING DETAILED AUTHORS DATA")
-    log("STARTED LOADING AUTHORS NODES")
     author_node = pd.read_csv(AUTHORS_NODE_PATH, sep=";")
-    log("FINISHED LOADING AUTHORS NODES")
 
     # Dropping authors which doesn't have an alias on DBLP (we are only looking at dblp entries).
     author_data = author_data[author_data['externalids.DBLP'].notna()]
@@ -84,77 +87,119 @@ def authors_additional_information():
     author_node.rename(columns={'author:string' : 'key'}, inplace=True)
     n_author_data.rename(columns={'externalids.DBLP' : 'key'}, inplace=True)
     merged_frame = pd.merge(author_node, n_author_data, how='left', on = 'key')
+
+    # We ony want a single entry for each author (there might be duplicates)
     merged_frame.drop(["key"], axis=1, inplace=True)
     merged_frame.drop_duplicates([':ID'], inplace=True)
-    # print(merged_frame)
     author_node.rename(columns={'key' : 'name'}, inplace=True)
+
+    # Since some of the authors might be got filtered from the initial frame, then we concatenate it to the merged one and filter out the duplicates again
+    # (the duplicates will be in this case all the authors of the concatenated frame which have extended info in the merged one)
     final_frame = pd.concat([merged_frame, author_node])
     final_frame.drop_duplicates([':ID'], keep='first', inplace=True)
-    # print(final_frame)
-    log("FINISHED INTEGRATING AUTHORS INFORMATION")
 
     return final_frame
 
 def reduce_frame(path: str, first_column_label: str, first_column_index : int, second_column_label : str, second_column_index : int) -> pd.DataFrame:
-    log("STARTING LOADING DATA")
+    """Reduces the columns of a Dataset represented by a Pandas dataframe by keeping only the 2 columns related to the 2 indexes passed as parameters, by giving them the respective labels.
+
+    Args:
+        path (str): the path of the csv file containing the data.
+        first_column_label (str): the label to assign to the first column extracted.
+        first_column_index (int): the index of the column of the dataframe representing the dataset to extract.
+        second_column_label (str): the label to assign to the second column extracted.
+        second_column_index (int): the index of the column of the dataframe representing the dataset to extract.
+
+    Returns:
+        pd.DataFrame: the dataset with only the two columns chosen with their respective new labels.
+    """
     frame = pd.read_csv(path, sep = ";", low_memory=False)
-    log("FINISHED LOADING DATA")
     reduced_frame = pd.DataFrame({f"{first_column_label}" : frame.iloc[:, first_column_index], f"{second_column_label}" : frame.iloc[:, second_column_index]})
     return reduced_frame
 
 def merge_cite_nodes() -> pd.DataFrame:
-    log("STARTING CITE NODE MERGE")
-    log("STARTING LOADING REQUIRED FILES")
+    """Elaborate the content of the files related to the CITE relationship.
+
+    Returns:
+        pd.DataFrame: elaborated dataframe corresponding to the CITE relationship
+    """
     citation_frame = pd.read_csv(CITE_PATH, sep=";")
     has_citation_frame = pd.read_csv(HAS_CITATIONS_PATH, sep=";")
-    log("FINISHED LOADING REQUIRED FILES")
 
     citation_frame.rename(columns={':ID': ':END_ID'}, inplace=True)
+
+    # The merged_frame will contain a pair (START_ID, key) in which the START_ID is the ID of the article which is citing another article, whereas key is the DBLP key
+    # of the cited article.
     merged_frame = pd.merge(has_citation_frame, citation_frame)
     merged_frame.rename(columns={'cite:string': 'key'}, inplace=True)
-    log("REMOVING USELESS CITATIONS")
+
+    # Dropping citation references to a document with key ... - They're incosistent
     for index, row in merged_frame.iterrows():
-        if(index % 1000 == 0):
-            print(f'--- Iteration: {index} ---')
         if row['key'] == '...':
             merged_frame.drop([index], inplace=True)
 
     merged_frame = pd.DataFrame(
         {':START_ID': merged_frame.iloc[:, 0], 'key': merged_frame.iloc[:, 2]})
 
-    merged_frame.to_csv("output_cite_merged.csv", sep=";", index=False)
-    log("PARTIAL MERGE ENDED. FILE STORED AS output_cite_merged.csv")
     return merged_frame
 
 def concat_all_publication_frames(reduced_article_frame : pd.DataFrame, reduced_book_frame : pd.DataFrame, reduced_incollection_frame : pd.DataFrame, reduced_inproceedings_frame : pd.DataFrame, reduced_proceedings_frame : pd.DataFrame) -> pd.DataFrame:
-    log("STARTED CONCATENATING FRAMES")
+    """Given the dataframes related to the data of all the publications, returns a single dataset which is a collection of all the previously mentioned ones.
+
+    Args:
+        reduced_article_frame (pd.DataFrame): reduced dataframe containing the article ID and DBLP key
+        reduced_book_frame (pd.DataFrame): reduced dataframe containing the book ID and DBLP key
+        reduced_incollection_frame (pd.DataFrame): reduced dataframe containing the incollection ID and DBLP key
+        reduced_inproceedings_frame (pd.DataFrame): reduced dataframe containing the inproceedings ID and DBLP key
+        reduced_proceedings_frame (pd.DataFrame): reduced dataframe containing the proceedings ID and DBLP key
+
+    Returns:
+        pd.DataFrame: a merged dataframe containing all the dataset passed as arguments
+    """
     
     return pd.concat([reduced_article_frame, reduced_book_frame, reduced_incollection_frame, reduced_inproceedings_frame, reduced_proceedings_frame])
 
 def compile_relationship(frame_1 : pd.DataFrame, frame_2 : pd.DataFrame) -> pd.DataFrame:
+    """Given two datasets which has a relationship between their elements, it returns a dataframe containing the START_ID and END_ID of all the elements involved.
+
+    Args:
+        frame_1 (pd.DataFrame): left-handside dataset of the relationship. 
+        frame_2 (pd.DataFrame): right-handside dataset of the relationship.
+
+    Returns:
+        pd.DataFrame: a dataframe representing the relationship.
+    """
     merged_frame = pd.merge(frame_1, frame_2)
     merged_frame = pd.DataFrame({':START_ID': merged_frame.iloc[:, 0], ':END_ID' : merged_frame.iloc[:, 2]})
     return merged_frame
 
-def make_belong_relationship():
-    log("STARTING LOADING DATA")
+def make_belong_relationship() -> pd.DataFrame:
+    """Given all the inproceedings and all the proceedings it create a dataset which represents the BELONG_TO relationship (i.e. an inproceeding belongs to a certain proceeding).
+
+    Returns:
+        pd.DataFrame: a dataframe corresponding to the BELONG_TO relationship.
+    """
     inproceedings_frame = pd.read_csv(INPROCEEDINGS_PATH, sep=";", header=None, low_memory=False)
     proceedings_frame = pd.read_csv(PROCEEDINGS_PATH, sep = ";", header=None, low_memory=False)
-    log("FINISHED LOADING DATA")
 
+    # The inproceeding contain information which should be in the relationship between an inproceeding and a proceeding (such as the number, the pages and the volume).
     reduced_inproceedings_frame = pd.DataFrame({":START_ID" : inproceedings_frame.iloc[:, 0], "key" : inproceedings_frame.iloc[:, 8], "number" : inproceedings_frame.iloc[:, 18], "pages" : inproceedings_frame.iloc[:, 19], "volume" : inproceedings_frame.iloc[:, 27]})
     reduced_proceedings_frame = pd.DataFrame({":END_ID" : proceedings_frame.iloc[:, 0], "key" : proceedings_frame.iloc[:, 14]})
     
-    # Belongs to frame with properties creation
+    # Belongs to frame with properties (number, pages, volume) creation
     belongs_to_frame = pd.merge(reduced_inproceedings_frame, reduced_proceedings_frame, on='key')
     belongs_to_frame.drop(["key"], inplace=True, axis=1)
 
     return belongs_to_frame
 
 def update_published_in_relationship():
+    """Given the published in raw relationship it add to it the number, pages and volume properties (initially contained in the article). Finally it saves a new csv file
+    representing the updated relationship. 
+    """
     published_in_frame = pd.read_csv(PUBLISHED_IN_PATH, sep=";", low_memory=False)
     article_frame = pd.read_csv(ARTICLE_PATH, sep=";", low_memory=False, header=None)
 
+    # The article frame contains information which should be in the relationship between it and the journal it is published in.
     reduced_published_in_frame = pd.DataFrame({":START_ID" : published_in_frame.iloc[:, 0], ":END_ID" : published_in_frame.iloc[:, 1]})
     reduced_article_frame = pd.DataFrame({":START_ID" : article_frame.iloc[:, 0], "number" : article_frame.iloc[:, 22], "pages" : article_frame.iloc[:, 23], "volume" : article_frame.iloc[:, 33]})
     new_published_in_frame = pd.merge(reduced_published_in_frame, reduced_article_frame, on=":START_ID")
@@ -162,10 +207,14 @@ def update_published_in_relationship():
     new_published_in_frame.to_csv(PUBLISHED_IN_PATH, sep=";", index=False)
 
 def update_part_of_relationship():
+    """Given the part of raw relationship it add to it the volume properties (initially contained in a book or proceeding). Finally it saves a new csv file
+    representing the updated relationship. 
+    """
     part_of_frame = pd.read_csv(PART_OF_PATH, sep=";")
     book_frame = pd.read_csv(BOOK_PATH, sep=";", header=None, low_memory=False)
     proceedings_frame = pd.read_csv(PROCEEDINGS_PATH, sep=";", header=None, low_memory=False)
 
+    # Both the books and the proceedings contains the volume of the series they are part of. So this information is transposed into the relationship.
     reduced_book_frame = pd.DataFrame({":START_ID" : book_frame.iloc[:, 0], "volume" : book_frame.iloc[:, 32]})
     reduced_proceedings_frame = pd.DataFrame({":START_ID" : proceedings_frame.iloc[:, 0], "volume" : proceedings_frame.iloc[:, 30]})
     reduced_part_of_frame = pd.DataFrame({":START_ID" : part_of_frame.iloc[:, 0], ":END_ID" : part_of_frame.iloc[:, 1]})
@@ -175,6 +224,8 @@ def update_part_of_relationship():
     merged_frame.to_csv(PART_OF_PATH, sep = ";", index=False)
 
 def update_cites_relationship():
+    """Removes from the CITE relationship frame, the entries which contains an homepage ID or an incollection ID in either their START_ID or END_ID."""
+
     cites_frame = pd.read_csv(CITE_RELATIONSHIP, sep = ";", low_memory=False)
     homepage_frame = pd.read_csv(WWW_PATH, sep = ";", low_memory=False)
     homepage_frame_start = pd.DataFrame({':START_ID' : homepage_frame.iloc[:, 0]})
@@ -197,6 +248,8 @@ def update_cites_relationship():
     cites_frame.to_csv(CITE_RELATIONSHIP, sep=";", index=False)
 
 def update_authoredby_relationship():
+    """Removes from the AUTHORED_BY relationship frame, the entries which contains an homepage ID or an incollection ID in their START_ID."""
+
     authoredby_frame = pd.read_csv(AUTHORED_BY_PATH, sep = ";", low_memory=False)
     homepage_frame = pd.read_csv(WWW_PATH, sep = ";", low_memory=False, header=None)
     homepage_frame = pd.DataFrame({':START_ID' : homepage_frame.iloc[:, 0]})
@@ -213,6 +266,7 @@ def update_authoredby_relationship():
     authoredby_frame.to_csv(AUTHORED_BY_PATH[:len(AUTHORED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
 
 def update_publishedby_relationship():
+    """Removes from the PUBLISHED_BY relationship frame, the entries which contains an incollection ID in their START_ID."""
     publishedby_frame = pd.read_csv(PUBLISHED_BY_PATH, sep = ";", low_memory=False)
     incollection_frame = pd.read_csv(INCOLLECTION_PATH, sep = ";", low_memory=False, header=None)
     incollection_frame = pd.DataFrame({':START_ID' : incollection_frame.iloc[:, 0]})
@@ -226,6 +280,8 @@ def update_publishedby_relationship():
     publishedby_frame.to_csv(PUBLISHED_BY_PATH[:len(PUBLISHED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
 
 def update_editedby_relationship():
+    """Removes from the EDITED_BY relationship frame, the entries which contains an homepage ID in their START_ID.
+    """
     editedby_frame = pd.read_csv(EDITED_BY_PATH, sep = ";", low_memory=False)
     homepage_frame = pd.read_csv(WWW_PATH, sep = ";", low_memory=False, header=None)
     homepage_frame = pd.DataFrame({':START_ID' : homepage_frame.iloc[:, 0]})
@@ -239,88 +295,184 @@ def update_editedby_relationship():
     editedby_frame.to_csv(EDITED_BY_PATH[:len(EDITED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
 
 def clean_fields(path: str, field_idx: list):
-    log(f"STARTING LOADING {path} DATA")
+    """Given a path of a dataset csv file and a list of indexes of the corresponding dataframe to drop, then it returns a dataframe with all those columns removed.
+
+    Args:
+        path (str): path of the csv file corresponding to a dataset.
+        field_idx (list): list of indexes of the columns of the corresponding dataframe to drop.
+    """
     frame = pd.read_csv(path, sep = ";", low_memory=False, header=None)
+
+    # Dropping all the columns corresponding to the list of indexes passed.
     frame.drop(frame.columns[field_idx], axis=1, inplace=True)
     if(path == ARTICLE_PATH):
         frame.iloc[:,13] = frame.iloc[:, 13].astype('Int64')
     frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False, header=False)
 
 def clean_fields_header(path: str, field_idx: list):
-    log(f"STARTING LOADING {path} DATA")
+    """Given a path of a dataset headers csv file and a list of indexes of the corresponding dataframe to drop, then it returns a dataframe with all those columns removed.
+
+    Args:
+        path (str): path of the csv file containing the headers of a dataframe.
+        field_idx (list): list of indexes of the columns of the corresponding headers to drop.
+    """
     frame = pd.read_csv(path, sep = ";", low_memory=False)
     frame.drop(frame.columns[field_idx], axis=1, inplace=True)
     frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False)
 
-def main():
-    log("STARTING REDUCING ARTICLE FRAME")
+def neo4jSetup():
+    """Perform all the actions to clean the data and get them ready to be imported in Neo4J."""
+
+    progress_bar(5, 100, "FETCHING PARTICULAR COLUMNS OF ARTICLE DATAFRAME")
     article_frame = reduce_frame(ARTICLE_PATH, "ArticleId", 0, "key", 16)
-    log("FINISHED REDUCING ARTICLE FRAME")
-    log("STARTING REDUCING BOOK FRAME")
+    progress_bar(20, 100, "FETCHING PARTICULAR COLUMNS OF BOOK DATAFRAME")
     book_frame = reduce_frame(BOOK_PATH, "ArticleId", 0, "key", 16)
-    log("FINISHED REDUCING BOOK FRAME")
-    log("STARTING REDUCING INCOLLECTION FRAME")
+    progress_bar(25, 100, "FETCHING PARTICULAR COLUMNS OF INCOLLECTION DATAFRAME")
     incollection_frame = reduce_frame(INCOLLECTION_PATH, "ArticleId", 0, "key", 12)
-    log("FINISHED REDUCING INCOLLECTION FRAME")
-    log("STARTING REDUCING INPROCEEDINGS FRAME")
+    progress_bar(30, 100, "FETCHING PARTICULAR COLUMNS OF INPROCEEDINGS DATAFRAME")
     inproceedings_frame = reduce_frame(INPROCEEDINGS_PATH, "ArticleId", 0, "key", 14)
-    log("FINISHED REDUCING INPROCEEDINGS FRAME")
-    log("STARTING REDUCING PROCEEDINGS FRAME")
+    progress_bar(35, 100, "FETCHING PARTICULAR COLUMNS OF PROCEEDINGS DATAFRAME")
     proceedings_frame = reduce_frame(PROCEEDINGS_PATH, "ArticleId", 0, "key", 14)
-    log("FINISHED REDUCING PROCEEDINGS FRAME")
 
+    progress_bar(45, 100, "CONCATENATING ALL PUBLICATION FRAMES TOGETHER")
     concatenated_publications_frame = concat_all_publication_frames(article_frame, book_frame, incollection_frame, inproceedings_frame, proceedings_frame)
-    log("FINISHED CONCATENATING FRAMES")
 
+    progress_bar(55, 100, "EXTENDING AUTHORS INFORMATION")
     authors_data = authors_additional_information()
     authors_data.to_csv("output_author_extended.csv", sep=";", index=False)
 
-    log("STARTED BUILDING CITE AND BELONG RELATIONSHIPS")
+    progress_bar(70, 100, "COMPILING CITE RELATIONSHIP")
     cite_relationship = compile_relationship(merge_cite_nodes(), concatenated_publications_frame)
+    progress_bar(73, 100, "COMPILING BELONG TO RELATIONSHIP")
     belong_relationship = make_belong_relationship()
-    cite_relationship.to_csv("output_cite_relationship.csv", sep=";",index=False)
+    progress_bar(75, 100, "WRITING CITE & BELONG TO RELATIONSHIP TO FILE")
+    cite_relationship.to_csv("output_cite_relationship.csv", sep=";", index=False)
     belong_relationship.to_csv(BELONG_TO_PATH, sep=";", index=False)
-    log("CITE RELATIONSHIP SAVED INTO output_cite_relationship.csv.")
-    log("BELONG RELATIONSHIP SAVED INTO output_belong_relationship.csv.")
 
     # Cleaning up relationships
-    log("UPDATING PUBLISHED IN RELATIONSHIP")
+    progress_bar(80, 100, "UPDATING PUBLISHEDIN RELATIONSHIP")
     update_published_in_relationship()
-    log("UPDATING PART OF RELATIONSHIP")
+    progress_bar(82, 100, "UPDATING PART OF RELATIONSHIP")
     update_part_of_relationship()
-    log("UPDATING CITES RELATIONSHIP")
+    progress_bar(84, 100, "UPDATING CITES RELATIONSHIP")
     update_cites_relationship()
-    log("UPDATING AUTHORED BY RELATIONSHIP")
+    progress_bar(86, 100, "UPDATING AUTHOREDBY RELATIONSHIP")
     update_authoredby_relationship()
-    log("UPDATING PUBLISHED BY RELATIONSHIP")
+    progress_bar(88, 100, "UPDATING PUBLISHEDBY RELATIONSHIP")
     update_publishedby_relationship()
-    log("UPDATING EDITED BY RELATIONSHIP")
+    progress_bar(90, 100, "UPDATING EDITEDBY RELATIONSHIP")
     update_editedby_relationship()
     
     # Delete useless phdthesis, inproceedings, articles, book, proceedings properties
-    log("CLEANING USELESS PROPERTIES OF THE ENTITIES")
+    progress_bar(91, 100, "CLEANING PROPERTIES FROM PUBLICATIONS FILES")
     clean_fields(PHD_THESIS_PATH, [1, 2, 5, 13, 14, 15, 17, 18, 19, 20, 21])
     clean_fields(INPROCEEDINGS_PATH, [1, 2, 3, 5, 6, 7, 8, 9, 10, 13, 19, 20, 22, 23, 25, 26, 28])
     clean_fields(ARTICLE_PATH, [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15, 22, 23, 24, 25, 27, 28, 30, 31, 33])
     clean_fields(BOOK_PATH, [1, 2, 3, 5, 6, 7, 8, 9, 10, 13, 22, 23, 25, 26, 27, 28, 29, 32])
     clean_fields(PROCEEDINGS_PATH, [2, 4, 5, 6, 7, 10, 20, 21, 23, 24, 25, 26, 27, 30])
+    progress_bar(95, 100, "UPDATING HEADER FILES")
     clean_fields_header(PHD_THESIS_HEADER_PATH, [1, 2, 5, 13, 14, 15, 17, 18, 19, 20, 21])
     clean_fields_header(INPROCEEDINGS_HEADER_PATH, [1, 2, 3, 5, 6, 7, 8, 9, 10, 13, 19, 20, 22, 23, 25, 26, 28])
     clean_fields_header(ARTICLE_HEADER_PATH, [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15, 22, 23, 24, 25, 27, 28, 30, 31, 33])
     clean_fields_header(BOOK_HEADER_PATH, [1, 2, 3, 5, 6, 7, 8, 9, 10, 13, 22, 23, 25, 26, 27, 28, 29, 32])
     clean_fields_header(PROCEEDINGS_HEADER_PATH, [2, 4, 5, 6, 7, 10, 20, 21, 23, 24, 25, 26, 27, 30])
-    log("ENDING")
+    progress_bar(100, 100, "COMPLETED")
+
+####################################################################################################
+#                                            MongoDB                                               #
+####################################################################################################
+
+def mongodbSetup():
+    print("mongodb setup.")
+    
+####################################################################################################
+#                                          GRAPHICS                                                #
+####################################################################################################
+
+def printLogo():
+    """Prints the logo onto the console."""
+
+    print("""
+        ####################################################################################################
+        #                    ___                                                                           #
+        #                  //    \                                                                         #
+        #                 ||=====||                                                                        #
+        #                  \ ___//                                                                         #
+        #                   ./O           System and Methods for Big and Unstructured Data - Group 2       #
+        #               ___/ //|\                                                                          #
+        #              / o    /}                           Riccardo Inghilleri                             #
+        #             (       /                               Manuela Merlo                                #
+        #             \      /                                 Matteo Negro                                #
+        #             |     (                                 Paolo Pertino                                #
+        #             |      \                               Leonardo Pesce                                #
+        #             )       \                                                                            #
+        #            /         \                                                                           #
+        #          /            )                                                                          #    
+        #        /              |                                                                          #
+        #      //             / /                                                                          #
+        #    /       ___(    ,| \                                                                          #
+        #  /       /    \     |  \                                                                         #
+        # (      /  /   /\     \  \                                                                        #
+        # \   /___ _-_//'|     |  |                                                                        #
+        #  \_______-/     \     \  \                                                                       #
+        #                   \-_-_-_-_-                                                                     #
+        ####################################################################################################
+    """)
+
+def clearScreen():
+    """Clears the console"""
+
+    if name == 'nt':
+        _ = system('cls')
+    # for mac and linux(here, os.name is 'posix')
+    else:
+        _ = system('clear')
+
+def progress_bar(progress : int, total : int, custom_string: str = ""):
+    """Creates/update a console and its status.
+
+    Args:
+        progress (int): current progress of the progress bar
+        total (int): the number corresponding at the 100% of completion
+        custom_string (str, optional): optional log message. Defaults to "".
+    """
+    clearScreen()
+    printLogo()
+    percent = int(100 * (progress / total))
+    bar = '▮' * percent + '-' * (100 - percent)
+    
+    print(f"\r|{bar}| {percent :.2f}% - [LOG] {custom_string}", end = "\r")
+
+####################################################################################################
+#                                              MAIN                                                #
+####################################################################################################
+
+def main():
+    # Init
+    clearScreen()
+    printLogo()
+
+    # Main menu
+    while((operation_chosen := int(input("What operation do you want to perform (N.B.: db reduction cannot be performed if the data are not previously cleaned)?\n\t1. Neo4J Setup\n\t2. MongoDB Setup\n\t10. Exit\n Choice: "))) != 10):
+        clearScreen()
+
+        # Operation chosen == 1 means that the user wants to clean his data in order to import them in Neo4J.
+        if(operation_chosen == 1):
+            printLogo()
+            progress_bar(0, 100)
+            neo4jSetup()
+        # Operation chosen == 2 means that the user wants to structure his data in order to import them in MongoDB.
+        elif(operation_chosen == 2):
+            printLogo()
+            progress_bar(0, 100)
+            mongodbSetup()
 
 def test():
-    log("UPDATING CITES RELATIONSHIP")
     update_cites_relationship()
-    log("UPDATING AUTHORED BY RELATIONSHIP")
     update_authoredby_relationship()
-    log("UPDATING PUBLISHED BY RELATIONSHIP")
     update_publishedby_relationship()
-    log("UPDATING EDITED BY RELATIONSHIP")
     update_editedby_relationship()
 
 if __name__ == "__main__":
-    # test()
     main()
+    # test()
