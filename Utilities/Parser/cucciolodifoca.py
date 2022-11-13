@@ -24,6 +24,11 @@
 ####################################################################################################
 import pandas as pd
 import numpy as np
+import csv
+import json
+import jsonlines
+import datetime
+import glob
 
 from os import system, name
 
@@ -57,6 +62,11 @@ INCOLLECTION_PATH = "output_incollection.csv"
 AUTHORED_BY_PATH = "output_author_authored_by.csv"
 PUBLISHED_BY_PATH = "output_publisher_published_by.csv"
 EDITED_BY_PATH = "output_editor_edited_by.csv"
+PAPERS_PATH_JSONL = "papers.jsonl"
+REDUCED_PAPERS_PATH_JSONL = "reduced_papers.jsonl"
+PAPERS_PATH_CSV = "papers.csv"
+PAPERS_TEXT_MERGED_PATH = "papers_text.json"
+PAPERS_FINAL_PATH = "papers_full_info.json"
 
 ####################################################################################################
 #                                         PARSER FUNCTIONS                                         # 
@@ -382,8 +392,177 @@ def neo4jSetup():
 #                                            MongoDB                                               #
 ####################################################################################################
 
+def reduce_jsonl_dataset(path: str, entries_to_keep: int):
+    """Given the path of a jsonl file it stores a new one with only entries_to_keep entries.
+
+    Args:
+        path (str): path of the jsonl file.
+        entries_to_keep (int): number of entries to keep.
+    """
+    with jsonlines.open(path, mode = "r") as complete_file, jsonlines.open('reduced_' + path, mode = "w") as reduced_file:
+        i = 0
+        for line in complete_file:
+            # print(type(line))
+            if(line.get("externalids").get("DBLP") is not None):
+                i += 1
+                reduced_file.write(line)
+            if(i == entries_to_keep):
+                break
+
+def integrate_authors_info():
+    """Given an article, it creates for each author an object with meaningful metadata about him/her."""
+    authors_frame = pd.read_csv(AUTHORS_DATA_PATH, sep="\t", engine='python')
+    paper_updated_info = []
+
+    with jsonlines.open(REDUCED_PAPERS_PATH_JSONL, mode = "r") as papers:
+        for paper in papers:
+            authors_of_paper = paper.get('authors')
+            updated_authors = []
+            for author in authors_of_paper:
+                author_id = author.get('authorId')
+                if(author_id is not None):
+                    author_additional_data = authors_frame.loc[authors_frame['authorid'] == int(author_id)]
+                    author_additional_data.dropna(axis=1, inplace=True)
+                    author_additional_data = author_additional_data.to_dict(orient='records')
+                    if(len(author_additional_data) > 0):
+                        author_additional_data = author_additional_data[0]
+                        author_additional_data.pop('updated', None)
+                        author_additional_data.pop('aliases', None)
+                        updated_authors.append(author_additional_data)
+            paper.update({'authors' : updated_authors})
+            paper_updated_info.append(paper)
+    
+    with jsonlines.open(REDUCED_PAPERS_PATH_JSONL, mode = "w") as papers:
+        for paper in paper_updated_info:
+            papers.write(paper)
+
+def merge_jsons():
+    """Merges all the json documents inside the ./json_docs folder into a single object."""
+    documents = []
+    for filename in glob.glob('./json_docs/*.json'):
+        with open(filename, 'r') as file:
+            document = json.load(file)
+            content = document.get('body_text')
+
+            # We don't care about citations in between articles. They'll be explicited in another property of the article.
+            for sec in content:
+                sec.pop('cite_spans', None)
+
+                # Dropping invalid references to figures
+                new_ref_spans = []
+                for ref_span in sec.get('ref_spans'):
+                    if(ref_span.get('ref_id') is not None):
+                        new_ref_spans.append(ref_span)
+                
+                if(len(new_ref_spans) > 0):
+                    sec.update({
+                        "figures_in_paragraph" : new_ref_spans
+                    })
+                    sec.pop('ref_spans', None)
+                else:
+                    sec.pop('ref_spans', None)
+            
+            documents.append(
+                {
+                    "content" : content,
+                    "list_of_figures" : document.get('ref_entries')
+                }
+            )
+    
+    with open(PAPERS_TEXT_MERGED_PATH, "w") as articles_text_file:
+        json.dump(documents, articles_text_file, indent=4)
+
+def integrate_text_info():
+    """Inserts in each article object some content (paragraphs, text, figures...)"""
+    new_articles = []
+    with open(PAPERS_TEXT_MERGED_PATH, 'r') as articles_text_file, jsonlines.open(REDUCED_PAPERS_PATH_JSONL, 'r') as articles_notext_file:
+        articles_text = json.load(articles_text_file)
+
+        for i, article in enumerate(articles_notext_file):
+            new_article = article
+            new_article.update({
+                "content" : {
+                    "sections" : articles_text[i].get("content"),
+                    "list_of_figures" : articles_text[i].get("list_of_figures")
+                }
+            })
+
+            new_articles.append(new_article)
+
+    with open(PAPERS_FINAL_PATH, "w") as papers_file:
+        json.dump(new_articles, papers_file, indent=4)
+
+def aggregate_sections():
+    """Aggregates the paragraphs belonging to the same section in a section object."""
+    aggregated_papers = ...
+    with open(PAPERS_FINAL_PATH, "r") as papers_file:
+        papers = json.load(papers_file)
+        
+        for paper in papers:
+            alredy_picked_sections = []
+            new_sections = []
+            for section in paper.get('content').get('sections'):
+                if section.get('section') not in alredy_picked_sections:
+                    alredy_picked_sections.append(section.get('section'))
+                    new_section = {
+                        "section_title" : section.pop('section', None),
+                        "paragraphs" : [section]
+                    }
+                    new_sections.append(new_section)
+                else:
+                    section.pop('section', None)
+                    paragraph_to_update = new_sections[len(new_sections) - 1].get('paragraphs')
+                    paragraph_to_update.append(section)
+                    new_sections[len(new_sections) - 1].update({
+                        'paragraphs' : paragraph_to_update
+                    })
+            
+            paper.get('content').update({
+                'sections' : new_sections
+            })
+
+            # for
+        
+        aggregated_papers = papers
+
+    with open(PAPERS_FINAL_PATH, "w") as papers_file:
+        json.dump(aggregated_papers, papers_file, indent = 4)  
+
+def remove_null_values(d: dict) -> dict:
+    """Given a dictionary, drop all the keys associated to null values.
+
+    Args:
+        d (dict): dictionary for which the keys associated to null values have to be dropped.
+
+    Returns:
+        dict: dictionary containing only those keys of the initial dictionary which are associated with non-null values.
+    """
+    return {
+        key: remove_null_values(value) if isinstance(value, dict) else value
+        for key, value in d.items()
+        if value != None
+    }   
+
 def mongodbSetup():
-    print("mongodb setup.")
+    """Handles all the preprocessing operations for importing data in MongoDB."""
+    # First of all we need to read the articles csv file and convert it in a json like structure.
+    reduce_jsonl_dataset(PAPERS_PATH_JSONL, 5000)
+
+    # Then we integrate some metadata about the authors
+    integrate_authors_info()
+
+    # Merging the 5000 jsons documents representing the extracted text and properties from the pdf.
+    merge_jsons()
+
+    # Integrating the texts in the articles objects. 
+    integrate_text_info()
+
+    # Aggregating the text by sections.
+    aggregate_sections()
+
+    #TODO: remove null values from all the objects.
+    #TODO: make a function by using pymongo to upload the documents in the database.
+
     
 ####################################################################################################
 #                                          GRAPHICS                                                #
@@ -437,7 +616,6 @@ def progress_bar(progress : int, total : int, custom_string: str = ""):
         custom_string (str, optional): optional log message. Defaults to "".
     """
     clearScreen()
-    printLogo()
     percent = int(100 * (progress / total))
     bar = '▮' * percent + '-' * (100 - percent)
     
@@ -466,12 +644,12 @@ def main():
             printLogo()
             progress_bar(0, 100)
             mongodbSetup()
+        
+        clearScreen()
 
 def test():
-    update_cites_relationship()
-    update_authoredby_relationship()
-    update_publishedby_relationship()
-    update_editedby_relationship()
+    mongodbSetup()
+    
 
 if __name__ == "__main__":
     main()
