@@ -29,10 +29,14 @@ import json
 import jsonlines
 import datetime
 import glob
+import random
 
 from os import system, name
 
 from ast import literal_eval
+
+# Set to a default number for having the same results in the group.
+random.seed(1234)
 
 ####################################################################################################
 #                                             PATHS                                                #
@@ -62,6 +66,7 @@ INCOLLECTION_PATH = "output_incollection.csv"
 AUTHORED_BY_PATH = "output_author_authored_by.csv"
 PUBLISHED_BY_PATH = "output_publisher_published_by.csv"
 EDITED_BY_PATH = "output_editor_edited_by.csv"
+PUBLISHER_PATH = "output_publisher.csv"
 PAPERS_PATH_JSONL = "papers.jsonl"
 REDUCED_PAPERS_PATH_JSONL = "reduced_papers.jsonl"
 PAPERS_PATH_CSV = "papers.csv"
@@ -481,6 +486,7 @@ def integrate_text_info():
         for i, article in enumerate(articles_notext_file):
             new_article = article
             new_article.update({
+                "s2fieldsofstudy" : [fos.get('category') for fos in article.get('s2fieldsofstudy')] if article.get('s2fieldsofstudy') != None else None,
                 "content" : {
                     "sections" : articles_text[i].get("content"),
                     "list_of_figures" : articles_text[i].get("list_of_figures")
@@ -520,15 +526,25 @@ def aggregate_sections():
             paper.get('content').update({
                 'sections' : new_sections
             })
-
-            # for
         
         aggregated_papers = papers
+    
+    # Since null-value fields should not be added in MongoDB we pop them out from our data.
+    cleaned_papers = []
+    for paper in aggregated_papers:
+        new_authors = []
+        for author in paper.get('authors'):
+            author = remove_null_values(author)
+            new_authors.append(author)
+        paper.update({'authors' : new_authors})
+        paper.get('content').update({'list_of_figures' : remove_null_values(paper.get('content').get('list_of_figures'))})
+        paper = remove_null_values(paper)
+        cleaned_papers.append(paper)
 
     with open(PAPERS_FINAL_PATH, "w") as papers_file:
-        json.dump(aggregated_papers, papers_file, indent = 4)  
+        json.dump(cleaned_papers, papers_file, indent = 4)  
 
-def remove_null_values(d: dict) -> dict:
+def remove_null_values(d):
     """Given a dictionary, drop all the keys associated to null values.
 
     Args:
@@ -543,25 +559,91 @@ def remove_null_values(d: dict) -> dict:
         if value != None
     }   
 
+def generate_citations():
+    """Generates for each article a set of random citations to other articles in the set by looking at the citationcount property of the article."""
+    papers_with_citations = []
+
+    with open(PAPERS_FINAL_PATH, "r") as papers_file:
+        papers = json.load(papers_file)
+
+        # First of all we need to collect all the identifiers and useful metadata of each article and its number of citations.
+        papers_metadata = []
+        for paper in papers:
+            papers_metadata.append({
+                'corpusid' : paper.get('corpusid'),
+                'citationcount' : paper.get('citationcount') if paper.get('citationcount') != None else 0,
+                'title' : paper.get('title'),
+                'authors' : [author.get('name') for author in paper.get('authors')],
+                'ingoing_citations' : 0
+            })
+        
+        # Now for each article we create an array of citations to other articles, following these rules:
+        #   - each article cannot cite itself.
+        #   - an article A can cite an article B only once.
+        #   - there is consistency between citationcount property of the article.
+        for i, paper in enumerate(papers):
+            already_cited_papers = []
+            citations_of_paper = []
+            j = 0
+            while j < papers_metadata[i].get('citationcount'):
+                random_article_idx = random.randint(0, 4999)
+                if random_article_idx not in already_cited_papers and random_article_idx != i:
+                    citations_of_paper.append({
+                        'reference_id' : papers_metadata[random_article_idx].get('corpusid'),
+                        'title' : papers_metadata[random_article_idx].get('title'),
+                        'authors' : papers_metadata[random_article_idx].get('authors')
+                    })
+
+                    # Then we save for each article which has been cited the number of times it has been randomly picked in order to reconstruct consistency 
+                    # also over the referencecount field.
+                    new_ingoing_citation_counter = papers_metadata[random_article_idx].get('ingoing_citations') + 1
+                    papers_metadata[random_article_idx].update({
+                        'ingoing_citations' : new_ingoing_citation_counter
+                    })
+                    j += 1
+            paper.update({
+                'citations' : citations_of_paper
+            })
+            papers_with_citations.append(paper)
+        
+        # Reconstructing the referencecount field consistency.
+        for i, paper in enumerate(papers_with_citations):
+            paper.update({
+                'referencecount' : papers_metadata[i].get('ingoing_citations')
+            })
+    
+    with open(PAPERS_FINAL_PATH, "w") as papers_file:
+        json.dump(papers_with_citations, papers_file, indent = 4)
+
 def mongodbSetup():
     """Handles all the preprocessing operations for importing data in MongoDB."""
     # First of all we need to read the articles csv file and convert it in a json like structure.
+    progress_bar(10, 100)
     reduce_jsonl_dataset(PAPERS_PATH_JSONL, 5000)
+    progress_bar(20, 100)
 
     # Then we integrate some metadata about the authors
     integrate_authors_info()
+    progress_bar(35, 100)
 
     # Merging the 5000 jsons documents representing the extracted text and properties from the pdf.
     merge_jsons()
+    progress_bar(50, 100)
 
     # Integrating the texts in the articles objects. 
     integrate_text_info()
+    progress_bar(65, 100)
 
     # Aggregating the text by sections.
     aggregate_sections()
+    progress_bar(80, 100)
 
-    #TODO: remove null values from all the objects.
+    # Generating citations
+    generate_citations()
+    progress_bar(95, 100)
+
     #TODO: make a function by using pymongo to upload the documents in the database.
+    progress_bar(100, 100)
 
     
 ####################################################################################################
@@ -615,11 +697,10 @@ def progress_bar(progress : int, total : int, custom_string: str = ""):
         total (int): the number corresponding at the 100% of completion
         custom_string (str, optional): optional log message. Defaults to "".
     """
-    clearScreen()
     percent = int(100 * (progress / total))
     bar = '▮' * percent + '-' * (100 - percent)
     
-    print(f"\r|{bar}| {percent :.2f}% - [LOG] {custom_string}", end = "\r")
+    print(f"\r|{bar}| {percent :.2f}%", end = "\r")
 
 ####################################################################################################
 #                                              MAIN                                                #
@@ -631,7 +712,7 @@ def main():
     printLogo()
 
     # Main menu
-    while((operation_chosen := int(input("What operation do you want to perform (N.B.: db reduction cannot be performed if the data are not previously cleaned)?\n\t1. Neo4J Setup\n\t2. MongoDB Setup\n\t10. Exit\n Choice: "))) != 10):
+    while((operation_chosen := int(input("What operation do you want to perform (N.B.: db reduction cannot be performed if the data are not previously cleaned)?\n\t1. Neo4J Setup\n\t2. MongoDB Setup\n\t3. Spark\n\t10. Exit\n Choice: "))) != 10):
         clearScreen()
 
         # Operation chosen == 1 means that the user wants to clean his data in order to import them in Neo4J.
@@ -648,7 +729,7 @@ def main():
         clearScreen()
 
 def test():
-    mongodbSetup()
+    generate_citations()
     
 
 if __name__ == "__main__":
