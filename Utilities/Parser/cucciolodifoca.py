@@ -30,9 +30,12 @@ import jsonlines
 import datetime
 import glob
 import random
+import requests
+import names
+import lorem
 
+from random_object_id import generate
 from os import system, name
-
 from ast import literal_eval
 
 # Set to a default number for having the same results in the group.
@@ -426,7 +429,7 @@ def integrate_authors_info():
             for author in authors_of_paper:
                 author_id = author.get('authorId')
                 if(author_id is not None):
-                    author_additional_data = authors_frame.loc[authors_frame['authorid'] == int(author_id)]
+                    author_additional_data = authors_frame.loc[authors_frame['authorid'] == int(author_id)].copy()
                     author_additional_data.dropna(axis=1, inplace=True)
                     author_additional_data = author_additional_data.to_dict(orient='records')
                     if(len(author_additional_data) > 0):
@@ -559,6 +562,154 @@ def remove_null_values(d):
         if value != None
     }   
 
+def integrate_images_in_paragraphs():
+    """Integrates images and their metadata in the paragraphs."""
+    new_papers = ...
+    with open(PAPERS_FINAL_PATH, "r") as papers_file:
+        papers = json.load(papers_file)
+        
+        # Generating additional metadata for each figure
+        url = f'https://picsum.photos/v2/list?limit=100'
+        request = requests.get(url)
+        request.raise_for_status()
+        images = request.json()
+
+        for paper in papers:
+            list_of_figures_in_paper = paper.get('content').get('list_of_figures') # Dictionary containing all the figures entries of the paper).
+            for key, figure in list_of_figures_in_paper.items():
+                if(key.startswith("FIGREF")):
+                    image_idx = random.randint(0, 99)
+                    figure.update({
+                        'author' : images[image_idx].get('author'),
+                        'width' : images[image_idx].get('width'),
+                        'height' : images[image_idx].get('height'),
+                        'url' : images[image_idx].get('url'),
+                        'download_url' : images[image_idx].get('download_url'),
+                    })
+            
+            list_of_sections = paper.get('content').get('sections')            # Array of paragraphs objects
+            for section in list_of_sections:
+                list_of_paragraphs = section.get('paragraphs')
+                for paragraph in list_of_paragraphs:
+                    if((figures_in_paragraph := paragraph.get('figures_in_paragraph')) != None):
+                        for fig in figures_in_paragraph:
+                            for k, f in list_of_figures_in_paper.items():
+                                if (fig.get('ref_id') == k):
+                                    fig.update({
+                                        'caption' : fig.pop('text', None)
+                                    })
+                                    fig.update(f)
+            
+            # In the overall section of figures of the article we want only few data.
+            entries_to_remove = ('text', 'width', 'height', 'download_url')
+            for key, figure in list_of_figures_in_paper.items():
+                if(key.startswith("FIGREF")):
+                    for k in entries_to_remove:
+                        figure.pop(k, None)
+                    
+        
+        new_papers = papers
+
+    with open(PAPERS_FINAL_PATH, "w") as papers_file:
+        json.dump(new_papers, papers_file, indent = 4)
+
+def generate_subsection(probability: int, super_section_title : str, has_figures : bool) -> list:
+    """Generate recursively subsections.
+
+    Args:
+        probability (int): the probability for which a new subsection will be generated.
+        super_section_title (str): the title of the section for which a subsection is generated.
+        has_figures (bool): true if the section for which a subsection is generated has figures.
+
+    Returns:
+        list: list of generated subsections.
+    """
+    paragraph_of_subsection = []
+    
+    # Generating random paragraphs for the subsection (max 3 paragraphs per subsection)
+    for i in range(random.randint(1, 3)):
+        if(has_figures and random.randint(0, 100) < 30):
+            if(random.randint(0, 100) < 5):
+                paragraph = {
+                    'text' : lorem.paragraph(),
+                    'figures_in_paragraph' : [{
+                        "ref_id": "FIGREF0",
+                        "caption": "We love SMBUD <3",
+                        "text": "Best professors <3",
+                        "type": "figure",
+                        "author": "Marco Brambilla & Andrea Tocchetti",
+                        "width": 2022,
+                        "height": 2022,
+                        "url": "https://drive.google.com/file/d/1OO-66JJlwrVSOXXAA96PiBmEKQ_jI_4X/view?usp=share_link",
+                        "download_url": "https://i1.rgstatic.net/ii/profile.image/1123684051890181-1644918563576_Q128/Andrea-Tocchetti.jpg"
+                    }],
+                }
+            else:
+                paragraph = {
+                    'text' : lorem.paragraph(),
+                    'figures_in_paragraph' : [{
+                        "ref_id": "FIGREF0",
+                        "caption": "A funny easter egg.",
+                        "text": "But there might be something funnier UwU",
+                        "type": "figure",
+                        "author": "SMBUD Group 2",
+                        "width": 2022,
+                        "height": 2022,
+                        "url": "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.robinsonpetshop.it%2Fnews%2Fgatto%2Fadottare-un-cucciolo-di-gatto-7-cose-sapere%2F&psig=AOvVaw3KOs6kst4pmV_AbT79jz2S&ust=1668619974297000&source=images&cd=vfe&ved=0CBAQjRxqFwoTCMDS7PnbsPsCFQAAAAAdAAAAABAD",
+                        "download_url": "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.terranuova.it%2FNews%2FAmbiente%2FLa-mattanza-dei-cuccioli-di-foca&psig=AOvVaw1R-7W8F0iuaTUzSHdxxA-P&ust=1668619999647000&source=images&cd=vfe&ved=0CBAQjRxqFwoTCOiMzYXcsPsCFQAAAAAdAAAAABAD"
+                    }],
+                }
+        else:
+            paragraph = {
+                'text' : lorem.paragraph()
+            }
+        paragraph_of_subsection.append(paragraph)
+    
+    new_probability = probability // 2
+    if(random.randint(0, 100) < new_probability):
+        section = {
+            'section_title' : 'subsection of ' + super_section_title,
+            'paragraphs' : paragraph_of_subsection,
+            'subsections' : generate_subsection(new_probability, 'subsection of ' + super_section_title, has_figures)
+        }
+    else:
+        section = {
+            'section_title' : 'subsection of ' + super_section_title,
+            'paragraphs' : paragraph_of_subsection,
+        }
+    list_of_subsections = []
+    for i in range(random.randint(1,3)):
+        new_section = section.copy()
+        olt_title = new_section.get('section_title')
+        new_section.update({
+            'section_title' : f'{i+1} ' + olt_title
+        })
+        list_of_subsections.append(new_section)
+    
+    return list_of_subsections
+
+def generate_subsections():
+    """For each section it random generates subsections."""
+    new_papers = []
+    with open(PAPERS_FINAL_PATH, "r") as papers_file:
+        papers = json.load(papers_file)
+
+        for paper in papers:
+            paper_has_figures = (len(paper.get('content').get('list_of_figures')) > 0)
+            list_of_sections = paper.get('content').get('sections')
+            for section in list_of_sections:
+                probability_of_subsection = 50
+                sub_section = random.randint(0, 100) < probability_of_subsection
+                if(sub_section):
+                    section.update({
+                        'subsections' : generate_subsection(probability_of_subsection, section.get('section_title'), paper_has_figures)
+                    })
+            new_papers.append(paper)
+    
+    with open(PAPERS_FINAL_PATH, "w") as papers_file:
+        json.dump(new_papers, papers_file, indent = 4)
+
+
 def generate_citations():
     """Generates for each article a set of random citations to other articles in the set by looking at the citationcount property of the article."""
     papers_with_citations = []
@@ -615,7 +766,128 @@ def generate_citations():
     with open(PAPERS_FINAL_PATH, "w") as papers_file:
         json.dump(papers_with_citations, papers_file, indent = 4)
 
-def mongodbSetup():
+def fix_dates():
+    """Makes dates compatible with MongoDB ISODate datatype."""
+    new_papers = []
+    with open(PAPERS_FINAL_PATH, "r") as papers_file:
+        papers = json.load(papers_file)
+
+        # publicationdate
+        #updated
+        for paper in papers:
+            publdate = paper.get('publicationdate')
+            updated = paper.get('updated')
+            paper.update({
+                'publicationdate' : {
+                    '$date' : publdate
+                },
+                'updated' : {
+                    '$date' : updated
+                }
+            })
+            new_papers.append(paper)
+        
+    with open(PAPERS_FINAL_PATH, "w") as papers_file:
+        json.dump(new_papers, papers_file, indent=4)
+
+def mongo_db_setup_random(number_of_papers : int = 5000):
+    skeleton_doc = '{"corpusid": 0, "abstract": "", "updated": "", "externalids": {}, "url": "", "title": "", "authors": [], "venue": "", "year": 0, "referencecount": 0, "citationcount": 0, "influentialcitationcount": 0, "isopenaccess": true, "s2fieldsofstudy": [], "publicationtypes": [], "publicationdate": "", "journal": {}, "content": {"sections": [], "list_of_figures": {}}, "citations": []}'
+    skeleton_aut = '{"authorid": 0, "name": "", "papercount": 0, "citationcount": 0, "hindex": 0, "s2url": "", "externalids.DBLP": ""}'
+    skeleton_par = '{"text": "", "figures_in_paragraph": []}'
+    skeleton_fig = '{"start": 0, "end": 0, "ref_id": "", "caption": "", "text": "", "type": "", "author": "", "width": 0, "height": 0, "url": "", "download_url": ""}'
+    skeleton_pub = '{"venue_name": "", "volume": 0, "number": 0, "date": ""}'
+    skeleton_ex_id = '{"DBLP": "", "MAG": "", "CorpusId": "", "DOI": ""}'
+    skeleton_sec = '{"section_title": "", "paragraphs": []}'
+    
+    docArray = []
+    oid_title_authors_list = []
+    authors_name_list = []
+    for _ in range(number_of_papers):
+        authors = [gen_aut(skeleton_aut) for _ in range(random.randint(1, 5))]
+        oid_title_authors_list.append([generate(), lorem.sentence(), authors])
+        authors_name_list.append([author["name"] for author in authors])
+
+    for i in range(number_of_papers):
+        doc = json.loads(skeleton_doc)
+        doc["_id"] = {"$oid": oid_title_authors_list[i][0]}
+        doc["DOI"] = str(random.randint(10000000000, 99999999999))
+        doc["title"] = oid_title_authors_list[i][1]
+        doc["abstract"] = lorem.paragraph()
+        doc["keywords"] = lorem.sentence().strip().split(" ")
+        numCit = random.randint(1, 10)
+        doc["num_of_citations"] = numCit
+        doc["year"] = random.randint(2010, 2022)
+        doc["authors"] = oid_title_authors_list[i][2]
+        numEd = random.randint(1, 5)
+        editors = [gen_edit(skeleton_ed) for _ in range(numEd)]
+        doc["editors"] = editors
+        numPar = random.randint(1, 10)
+        paragraphs = [gen_paragraph(skeleton_par, skeleton_fig) for _ in range(numPar)]
+        doc["paragraphs"] = paragraphs
+        doc["publication_details"] = gen_pub(skeleton_pub)
+        citations = []
+        for _ in range(numCit):
+            index = random.randint(0, number_of_papers - 1)
+            citations.append(
+                [{"$oid": oid_title_authors_list[index][0]}, oid_title_authors_list[index][1], authors_name_list[index]])
+        doc['citations'] = citations
+        docArray.append(doc)
+
+    with open(f'randomdocs.json', 'w') as file:
+        json.dump(docArray, file, indent=4)
+    
+    
+def gen_aut(skeleton_aut : str) -> dict:
+    aut = json.loads(skeleton_aut)
+    aut["name"] = names.get_full_name(random.choice(("male", "female")))
+    aut["ORCID"] = str(random.randint(10000000000, 99999999999))
+    aut["email"] = str(aut["name"]).replace(' ', '') + "@mail.com"
+    aut["URL"] = str(aut["name"]).replace(' ', '') + ".com"
+    aut["affiliation"] = random.choice(("PoliMi", "Bocconi", "Cattolica", "Bicocca"))
+    aut["bio"] = lorem.paragraph()
+    return aut
+
+
+def gen_edit(skeleton_ed : str) -> dict:
+    ed = json.loads(skeleton_ed)
+    ed["name"] = names.get_full_name()
+    ed["email"] = str(ed["name"]).replace(' ', '') + "@mail.com"
+    return ed
+
+
+def gen_paragraph(skeleton_par : str, skeleton_fig : str, leaf : bool = False) -> dict:
+    par = json.loads(skeleton_par)
+    par["Title"] = lorem.sentence()
+    par["Text"] = lorem.paragraph()
+    numImg = random.randint(1, 2)
+    images = []
+    for _ in range(numImg):
+        images.append(gen_img(skeleton_fig))
+    par["images"] = images
+    if not leaf:
+        par.update({"sub_paragraphs": ""})
+        par["sub_paragraphs"] = [gen_paragraph(skeleton_par, skeleton_fig, 0 == random.choice((0, 1)))]
+    return par
+
+
+def gen_img(skeleton_fig : str) -> dict:
+    img = json.loads(skeleton_fig)
+    # TODO
+    # img["URL"] = ""
+    img["binary"] = f'{random.randint(1, 255):08b}'
+    return img
+
+    
+def gen_pub(skeleton_pub : str) -> dict:
+    pub = json.loads(skeleton_pub)
+    pub["venue_name"] = names.get_last_name() + " Journal"
+    pub["volume"] = random.randint(1, 100)
+    pub["number"] = random.randint(1, 100)
+    pub["date"] = f'{random.randint(2010, 2022)}-{random.randint(1, 12)}-{random.randint(1, 28)}'
+    return pub
+
+
+def mongo_db_setup():
     """Handles all the preprocessing operations for importing data in MongoDB."""
     # First of all we need to read the articles csv file and convert it in a json like structure.
     progress_bar(10, 100)
@@ -638,11 +910,18 @@ def mongodbSetup():
     aggregate_sections()
     progress_bar(80, 100)
 
+    # Integrating images metadata
+    integrate_images_in_paragraphs()
+    progress_bar(85, 100)
+
+    generate_subsections()
+    progress_bar(90, 100)
+
     # Generating citations
     generate_citations()
     progress_bar(95, 100)
 
-    #TODO: make a function by using pymongo to upload the documents in the database.
+    fix_dates()
     progress_bar(100, 100)
 
     
@@ -712,7 +991,7 @@ def main():
     printLogo()
 
     # Main menu
-    while((operation_chosen := int(input("What operation do you want to perform (N.B.: db reduction cannot be performed if the data are not previously cleaned)?\n\t1. Neo4J Setup\n\t2. MongoDB Setup\n\t3. Spark\n\t10. Exit\n Choice: "))) != 10):
+    while((operation_chosen := int(input("What operation do you want to perform (N.B.: db reduction cannot be performed if the data are not previously cleaned)?\n\t1. Neo4J Setup\n\t2. MongoDB Setup\n\t3. MongoDB Random Setup\n\t4. Spark\n\t10. Exit\n Choice: "))) != 10):
         clearScreen()
 
         # Operation chosen == 1 means that the user wants to clean his data in order to import them in Neo4J.
@@ -724,12 +1003,15 @@ def main():
         elif(operation_chosen == 2):
             printLogo()
             progress_bar(0, 100)
-            mongodbSetup()
+            mongo_db_setup()
+        elif(operation_chosen == 3):
+            printLogo()
+            mongo_db_setup_random(int(input('How many papers do you want to generate? (default 5000) : ')))
         
         clearScreen()
 
 def test():
-    generate_citations()
+    generate_subsections()
     
 
 if __name__ == "__main__":
