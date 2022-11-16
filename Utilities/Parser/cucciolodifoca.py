@@ -488,8 +488,15 @@ def integrate_text_info():
 
         for i, article in enumerate(articles_notext_file):
             new_article = article
+            foss = [fos.get('category') for fos in article.get('s2fieldsofstudy')] if article.get('s2fieldsofstudy') != None else None
+            already_picked_fos = []
+            if foss != None:
+                for fos in foss:
+                    if fos not in already_picked_fos:
+                        already_picked_fos.append(fos)
+                        
             new_article.update({
-                "s2fieldsofstudy" : [fos.get('category') for fos in article.get('s2fieldsofstudy')] if article.get('s2fieldsofstudy') != None else None,
+                "s2fieldsofstudy" : already_picked_fos,
                 "content" : {
                     "sections" : articles_text[i].get("content"),
                     "list_of_figures" : articles_text[i].get("list_of_figures")
