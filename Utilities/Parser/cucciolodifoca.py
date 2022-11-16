@@ -606,6 +606,22 @@ def integrate_images_in_paragraphs():
                 if(key.startswith("FIGREF")):
                     for k in entries_to_remove:
                         figure.pop(k, None)
+
+            # Change list_of_figures paradigm, from single document to array
+            list_of_figures_in_paper = paper.get('content').get('list_of_figures')
+            new_list_of_figures = []
+            for key, figure in list_of_figures_in_paper.items():
+                figure.update({
+                    'fig_id' : key
+                })
+                new_list_of_figures.append(figure)
+            
+            if(len(new_list_of_figures) > 0):
+                paper.get('content').update({
+                    'list_of_figures' : new_list_of_figures
+                })
+            else:
+                paper.get('content').pop('list_of_figures')
                     
         
         new_papers = papers
@@ -695,7 +711,7 @@ def generate_subsections():
         papers = json.load(papers_file)
 
         for paper in papers:
-            paper_has_figures = (len(paper.get('content').get('list_of_figures')) > 0)
+            paper_has_figures = (paper.get('content').get('list_of_figures') != None and len(paper.get('content').get('list_of_figures')) > 0)
             list_of_sections = paper.get('content').get('sections')
             for section in list_of_sections:
                 probability_of_subsection = 50
