@@ -813,101 +813,134 @@ def fix_dates():
     with open(PAPERS_FINAL_PATH, "w") as papers_file:
         json.dump(new_papers, papers_file, indent=4)
 
-def mongo_db_setup_random(number_of_papers : int = 5000):
-    skeleton_doc = '{"corpusid": 0, "abstract": "", "updated": "", "externalids": {}, "url": "", "title": "", "authors": [], "venue": "", "year": 0, "referencecount": 0, "citationcount": 0, "influentialcitationcount": 0, "isopenaccess": true, "s2fieldsofstudy": [], "publicationtypes": [], "publicationdate": "", "journal": {}, "content": {"sections": [], "list_of_figures": {}}, "citations": []}'
+def mongo_db_setup_random(number_of_papers: int = 5000):
+    skeleton_doc = '{"corpusid": 0, "abstract": "", "updated": {}, "externalids": {}, "url": "", "title": "", "authors": [], "venue": "", "year": 0, "referencecount": 0, "citationcount": 0, "influentialcitationcount": 0, "isopenaccess": true, "s2fieldsofstudy": [], "publicationtypes": [], "publicationdate": "", "journal": {}, "content": {"sections": [],"list_of_figures": []}, "citations": []}'
     skeleton_aut = '{"authorid": 0, "name": "", "papercount": 0, "citationcount": 0, "hindex": 0, "s2url": "", "externalids.DBLP": ""}'
-    skeleton_par = '{"text": "", "figures_in_paragraph": []}'
-    skeleton_fig = '{"start": 0, "end": 0, "ref_id": "", "caption": "", "text": "", "type": "", "author": "", "width": 0, "height": 0, "url": "", "download_url": ""}'
-    skeleton_pub = '{"venue_name": "", "volume": 0, "number": 0, "date": ""}'
-    skeleton_ex_id = '{"DBLP": "", "MAG": "", "CorpusId": "", "DOI": ""}'
+    skeleton_par = '{"text": ""}'
+    skeleton_fig = '{"start": 0, "end": 0, "ref_id": "", "caption": "", "text": "", "type": "figure", "author": "", "width": 0, "height": 0, "url": "", "download_url": ""}'
     skeleton_sec = '{"section_title": "", "paragraphs": []}'
-    
+    skeleton_fig_small = '{"type": "figure", "author": "", "url": "", "fig_id": ""}'
+    skeleton_cit = '{"reference_id": 0, "title": "","authors": []}'
+
     docArray = []
     oid_title_authors_list = []
     authors_name_list = []
     for _ in range(number_of_papers):
         authors = [gen_aut(skeleton_aut) for _ in range(random.randint(1, 5))]
-        oid_title_authors_list.append([generate(), lorem.sentence(), authors])
-        authors_name_list.append([author["name"] for author in authors])
+    oid_title_authors_list.append([generate(), lorem.sentence(), authors])
+    authors_name_list.append([author["name"] for author in authors])
 
     for i in range(number_of_papers):
         doc = json.loads(skeleton_doc)
-        doc["_id"] = {"$oid": oid_title_authors_list[i][0]}
-        doc["DOI"] = str(random.randint(10000000000, 99999999999))
-        doc["title"] = oid_title_authors_list[i][1]
-        doc["abstract"] = lorem.paragraph()
-        doc["keywords"] = lorem.sentence().strip().split(" ")
-        numCit = random.randint(1, 10)
-        doc["num_of_citations"] = numCit
-        doc["year"] = random.randint(2010, 2022)
-        doc["authors"] = oid_title_authors_list[i][2]
-        numEd = random.randint(1, 5)
-        editors = [gen_edit(skeleton_ed) for _ in range(numEd)]
-        doc["editors"] = editors
-        numPar = random.randint(1, 10)
-        paragraphs = [gen_paragraph(skeleton_par, skeleton_fig) for _ in range(numPar)]
-        doc["paragraphs"] = paragraphs
-        doc["publication_details"] = gen_pub(skeleton_pub)
-        citations = []
-        for _ in range(numCit):
-            index = random.randint(0, number_of_papers - 1)
-            citations.append(
-                [{"$oid": oid_title_authors_list[index][0]}, oid_title_authors_list[index][1], authors_name_list[index]])
-        doc['citations'] = citations
-        docArray.append(doc)
+    doc["corpusid"] = i
+    doc["abstract"] = lorem.paragraph()
+    date = random.randint(2010, 2022)
+    doc["update"] = {"$date": f'{date}-{str(random.randint(1, 12)).zfill(2)}'
+                              f'-{str(random.randint(1, 28)).zfill(2)}T{str(random.randint(1, 24)).zfill(2)}'
+                              f':{str(random.randint(1, 60)).zfill(2)}:{str(random.randint(1, 60)).zfill(2)}'
+                              f'.000+00:00'}
+    doc["exertenalids"] = {
+        "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",
+        "MAG": str(random.randint(1000000000, 9999999999)),
+        "corpusid": str(i),
+        "DOI": str(random.randint(10000000000, 99999999999))
+    }
+    doc["URL"] = f'https://www.semanticscholar.org/paper/{oid_title_authors_list[i][1].replace(" ", "")}'
+    doc["title"] = oid_title_authors_list[i][1]
+    doc["authors"] = oid_title_authors_list[i][2]
+    doc["venue"] = lorem.sentence().split(' ')[0] + lorem.sentence().split(' ')[0]
+    doc["year"] = random.randint(2009, date)
+    numRef = random.randint(1, 100)
+    doc["referencecount"] = numRef
+    numCit = random.randint(1, 10)
+    doc["citationcount"] = numCit
+    doc["influentialcitationcount"] = random.randint(0, numCit)
+    s2fieldsofstudy = ["Economics", "Computer Science", "Math", "Bio"]
+    doc["s2fieldsofstudy"] = s2fieldsofstudy[:random.randint(1, len(s2fieldsofstudy) - 1)]
+    doc["publicationtypes"] = ["JournalArticle"]
+    doc["publicationdate"] = doc["update"]
+    tmp = random.randint(1, 100)
+    doc["journal"] = {
+        "name": doc["venue"],
+        "volume": str(random.randint(1, 20)),
+        "pages": f'{tmp}-{random.randint(tmp, tmp + 10)} '
+    }
+    doc["content"]["section"] = [gen_sec(skeleton_sec, skeleton_par, skeleton_fig) for _ in
+                                 range(random.randint(1, 10))]
+    doc["content"]["list_of_figures"] = [gen_img_small(skeleton_fig_small) for _ in range(random.randint(1, 10))]
+    doc["citations"] = [gen_cit(skeleton_cit, random.randint(1, number_of_papers)) for _ in
+                        range(random.randint(1, 10))]
+    docArray.append(doc)
 
     with open(f'randomdocs.json', 'w') as file:
         json.dump(docArray, file, indent=4)
-    
-    
-def gen_aut(skeleton_aut : str) -> dict:
+
+
+def gen_aut(skeleton_aut: str) -> dict:
     aut = json.loads(skeleton_aut)
-    aut["name"] = names.get_full_name(random.choice(("male", "female")))
-    aut["ORCID"] = str(random.randint(10000000000, 99999999999))
-    aut["email"] = str(aut["name"]).replace(' ', '') + "@mail.com"
-    aut["URL"] = str(aut["name"]).replace(' ', '') + ".com"
-    aut["affiliation"] = random.choice(("PoliMi", "Bocconi", "Cattolica", "Bicocca"))
-    aut["bio"] = lorem.paragraph()
+    aut["authorid"] = random.randint(1000000, 9999999)
+    aut["name"] = names.get_full_name()
+    aut["papercount"] = random.randint(1, 50)
+    aut["citationcount"] = random.randint(1, 1000)
+    aut["hindex"] = random.randint(1, 100)
+    aut["s2url"] = f'https://www.semanticscholar.org/author/{aut["authorid"]}'
+    aut["externalids.DBLP"] = f"['{aut['name']}']"
+
     return aut
 
 
-def gen_edit(skeleton_ed : str) -> dict:
-    ed = json.loads(skeleton_ed)
-    ed["name"] = names.get_full_name()
-    ed["email"] = str(ed["name"]).replace(' ', '') + "@mail.com"
-    return ed
-
-
-def gen_paragraph(skeleton_par : str, skeleton_fig : str, leaf : bool = False) -> dict:
-    par = json.loads(skeleton_par)
-    par["Title"] = lorem.sentence()
-    par["Text"] = lorem.paragraph()
-    numImg = random.randint(1, 2)
-    images = []
-    for _ in range(numImg):
-        images.append(gen_img(skeleton_fig))
-    par["images"] = images
+def gen_sec(skeleton_sec: str, skeleton_par: str, skeleton_fig: str, leaf: bool = False) -> dict:
+    sec = json.loads(skeleton_sec)
+    sec["section_title"] = lorem.sentence()
+    numPar = random.randint(1, 10)
+    sec["paragraphs"] = [gen_par(skeleton_par, skeleton_fig) for _ in range(numPar)]
     if not leaf:
-        par.update({"sub_paragraphs": ""})
-        par["sub_paragraphs"] = [gen_paragraph(skeleton_par, skeleton_fig, 0 == random.choice((0, 1)))]
+        sec.update(
+            {"sub_paragraphs": [[gen_sec(skeleton_par, skeleton_par, skeleton_fig, 0 == random.choice((0, 1)))]]})
+
+    return sec
+
+
+def gen_par(skeleton_par: str, skeleton_fig: str) -> dict:
+    par = json.loads(skeleton_par)
+    par["text"] = lorem.paragraph()
+    numImg = random.randint(0, 2)
+    if numImg > 0:
+        par.update({"figures_in_paragraph": [gen_img(skeleton_fig) for _ in range(numImg)]})
+
     return par
 
 
-def gen_img(skeleton_fig : str) -> dict:
+def gen_img(skeleton_fig: str) -> dict:
     img = json.loads(skeleton_fig)
-    # TODO
-    # img["URL"] = ""
-    img["binary"] = f'{random.randint(1, 255):08b}'
+    img["start"] = random.randint(1, 1000)
+    img["end"] = random.randint(img["start"], 1001)
+    img["ref_id"] = f'FIGREF{random.randint(0, 100)}'
+    img["caption"] = lorem.sentence()
+    img["width"] = random.randint(500, 2500)
+    img["height"] = random.randint(500, 2500)
+    img["url"] = f'https://unsplash.com/photos/{random.randint(100000000, 999999999)}'
+    img["download_url"] = f'https://picsum.photos/id/{random.randint(100000000, 999999999)}'
+
     return img
 
-    
-def gen_pub(skeleton_pub : str) -> dict:
-    pub = json.loads(skeleton_pub)
-    pub["venue_name"] = names.get_last_name() + " Journal"
-    pub["volume"] = random.randint(1, 100)
-    pub["number"] = random.randint(1, 100)
-    pub["date"] = f'{random.randint(2010, 2022)}-{random.randint(1, 12)}-{random.randint(1, 28)}'
-    return pub
+
+def gen_img_small(skeleton_img_small: str) -> dict:
+    img = json.loads(skeleton_img_small)
+    img["author"] = names.get_full_name()
+    img["url"] = f'https://unsplash.com/photos/{random.randint(100000000, 999999999)}'
+    img["fig_id"] = f'FIGREF{1, 100}'
+
+    return img
+
+
+def gen_cit(skeleton_cit: str, id: int) -> dict:
+    cit = json.loads(skeleton_cit)
+    cit["reference_id"] = id
+    cit["title"] = lorem.sentence()
+    cit["author"] = names.get_full_name()
+
+    return cit
 
 
 def mongo_db_setup():
