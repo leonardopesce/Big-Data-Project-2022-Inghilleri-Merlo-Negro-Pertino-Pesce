@@ -427,7 +427,9 @@ def integrate_authors_info():
             authors_of_paper = paper.get('authors')
             updated_authors = []
             for author in authors_of_paper:
+                author_name = author.get('name')
                 author_id = author.get('authorId')
+                authors_generalities = author_name.split()
                 if(author_id is not None):
                     author_additional_data = authors_frame.loc[authors_frame['authorid'] == int(author_id)].copy()
                     author_additional_data.dropna(axis=1, inplace=True)
@@ -436,6 +438,14 @@ def integrate_authors_info():
                         author_additional_data = author_additional_data[0]
                         author_additional_data.pop('updated', None)
                         author_additional_data.pop('aliases', None)
+                        try:
+                            author_additional_data.update({
+                                'email' : f"{authors_generalities[0]}{authors_generalities[1]}@gmail.com"
+                            })
+                        except:
+                            author_additional_data.update({
+                                'email' : f"SMBUD_{authors_generalities[0]}@gmail.com"
+                            })
                         updated_authors.append(author_additional_data)
             paper.update({'authors' : updated_authors})
             paper_updated_info.append(paper)
@@ -481,8 +491,9 @@ def merge_jsons():
         json.dump(documents, articles_text_file, indent=4)
 
 def integrate_text_info():
-    """Inserts in each article object some content (paragraphs, text, figures...)"""
+    """Inserts in each article object some content (paragraphs, text, figures, keywords...)"""
     new_articles = []
+    possible_keywords = ["MACHINE LEARNING", "DEEP LEARNING", "BIG DATA", "GPU", "HTML", "PYTHON", "C++", "JAVA", "UI", "UX", "FLUTTER", "NEO4J", "MONGODB", "SPARK"]
     with open(PAPERS_TEXT_MERGED_PATH, 'r') as articles_text_file, jsonlines.open(REDUCED_PAPERS_PATH_JSONL, 'r') as articles_notext_file:
         articles_text = json.load(articles_text_file)
 
@@ -499,7 +510,8 @@ def integrate_text_info():
                 "s2fieldsofstudy" : already_picked_fos,
                 "content" : {
                     "sections" : articles_text[i].get("content"),
-                    "list_of_figures" : articles_text[i].get("list_of_figures")
+                    "list_of_figures" : articles_text[i].get("list_of_figures"),
+                    "keywords" : random.choices(possible_keywords, k = random.randint(1, 4))
                 }
             })
 
@@ -778,6 +790,7 @@ def generate_citations():
             paper.update({
                 'citations' : citations_of_paper
             })
+            paper.pop('influentialcitationcount', None)
             papers_with_citations.append(paper)
         
         # Reconstructing the referencecount field consistency.
@@ -840,7 +853,7 @@ def mongo_db_setup_random(number_of_papers: int = 5000):
                               f':{str(random.randint(1, 60)).zfill(2)}:{str(random.randint(1, 60)).zfill(2)}'
                               f'.000+00:00'}
     doc["exertenalids"] = {
-        "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",
+        "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",                                    # PROBLEMA QUA
         "MAG": str(random.randint(1000000000, 9999999999)),
         "corpusid": str(i),
         "DOI": str(random.randint(10000000000, 99999999999))
