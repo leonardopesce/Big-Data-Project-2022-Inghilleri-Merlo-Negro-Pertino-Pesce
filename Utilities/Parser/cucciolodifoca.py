@@ -840,50 +840,50 @@ def mongo_db_setup_random(number_of_papers: int = 5000):
     authors_name_list = []
     for _ in range(number_of_papers):
         authors = [gen_aut(skeleton_aut) for _ in range(random.randint(1, 5))]
-    oid_title_authors_list.append([generate(), lorem.sentence(), authors])
-    authors_name_list.append([author["name"] for author in authors])
+        oid_title_authors_list.append([generate(), lorem.sentence(), authors])
+        authors_name_list.append([author["name"] for author in authors])
 
     for i in range(number_of_papers):
         doc = json.loads(skeleton_doc)
-    doc["corpusid"] = i
-    doc["abstract"] = lorem.paragraph()
-    date = random.randint(2010, 2022)
-    doc["update"] = {"$date": f'{date}-{str(random.randint(1, 12)).zfill(2)}'
+        doc["corpusid"] = i
+        doc["abstract"] = lorem.paragraph()
+        date = random.randint(2010, 2022)
+        doc["update"] = {"$date": f'{date}-{str(random.randint(1, 12)).zfill(2)}'
                               f'-{str(random.randint(1, 28)).zfill(2)}T{str(random.randint(1, 24)).zfill(2)}'
                               f':{str(random.randint(1, 60)).zfill(2)}:{str(random.randint(1, 60)).zfill(2)}'
                               f'.000+00:00'}
-    doc["exertenalids"] = {
-        "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",                                    # PROBLEMA QUA
-        "MAG": str(random.randint(1000000000, 9999999999)),
-        "corpusid": str(i),
-        "DOI": str(random.randint(10000000000, 99999999999))
-    }
-    doc["URL"] = f'https://www.semanticscholar.org/paper/{oid_title_authors_list[i][1].replace(" ", "")}'
-    doc["title"] = oid_title_authors_list[i][1]
-    doc["authors"] = oid_title_authors_list[i][2]
-    doc["venue"] = lorem.sentence().split(' ')[0] + lorem.sentence().split(' ')[0]
-    doc["year"] = random.randint(2009, date)
-    numRef = random.randint(1, 100)
-    doc["referencecount"] = numRef
-    numCit = random.randint(1, 10)
-    doc["citationcount"] = numCit
-    doc["influentialcitationcount"] = random.randint(0, numCit)
-    s2fieldsofstudy = ["Economics", "Computer Science", "Math", "Bio"]
-    doc["s2fieldsofstudy"] = s2fieldsofstudy[:random.randint(1, len(s2fieldsofstudy) - 1)]
-    doc["publicationtypes"] = ["JournalArticle"]
-    doc["publicationdate"] = doc["update"]
-    tmp = random.randint(1, 100)
-    doc["journal"] = {
-        "name": doc["venue"],
-        "volume": str(random.randint(1, 20)),
-        "pages": f'{tmp}-{random.randint(tmp, tmp + 10)} '
-    }
-    doc["content"]["section"] = [gen_sec(skeleton_sec, skeleton_par, skeleton_fig) for _ in
-                                 range(random.randint(1, 10))]
-    doc["content"]["list_of_figures"] = [gen_img_small(skeleton_fig_small) for _ in range(random.randint(1, 10))]
-    doc["citations"] = [gen_cit(skeleton_cit, random.randint(1, number_of_papers)) for _ in
-                        range(random.randint(1, 10))]
-    docArray.append(doc)
+        doc["exertenalids"] = {
+            "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",                                    
+            "MAG": str(random.randint(1000000000, 9999999999)),
+            "corpusid": str(i),
+            "DOI": str(random.randint(10000000000, 99999999999))
+        }
+        doc["URL"] = f'https://www.semanticscholar.org/paper/{oid_title_authors_list[i][1].replace(" ", "")}'
+        doc["title"] = oid_title_authors_list[i][1]
+        doc["authors"] = oid_title_authors_list[i][2]
+        doc["venue"] = lorem.sentence().split(' ')[0] + lorem.sentence().split(' ')[0]
+        doc["year"] = random.randint(2009, date)
+        numRef = random.randint(1, 100)
+        doc["referencecount"] = numRef
+        numCit = random.randint(1, 10)
+        doc["citationcount"] = numCit
+        doc["influentialcitationcount"] = random.randint(0, numCit)
+        s2fieldsofstudy = ["Economics", "Computer Science", "Math", "Bio"]
+        doc["s2fieldsofstudy"] = s2fieldsofstudy[:random.randint(1, len(s2fieldsofstudy) - 1)]
+        doc["publicationtypes"] = ["JournalArticle"]
+        doc["publicationdate"] = doc["update"]
+        tmp = random.randint(1, 100)
+        doc["journal"] = {
+            "name": doc["venue"],
+            "volume": str(random.randint(1, 20)),
+            "pages": f'{tmp}-{random.randint(tmp, tmp + 10)} '
+        }
+        doc["content"]["section"] = [gen_sec(skeleton_sec, skeleton_par, skeleton_fig) for _ in
+                                    range(random.randint(1, 10))]
+        doc["content"]["list_of_figures"] = [gen_img_small(skeleton_fig_small) for _ in range(random.randint(1, 10))]
+        doc["citations"] = [gen_cit(skeleton_cit, random.randint(1, number_of_papers)) for _ in
+                            range(random.randint(1, 10))]
+        docArray.append(doc)
 
     with open(f'randomdocs.json', 'w') as file:
         json.dump(docArray, file, indent=4)
