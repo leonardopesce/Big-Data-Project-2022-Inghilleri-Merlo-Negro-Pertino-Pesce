@@ -1102,7 +1102,8 @@ def spark_import_procedure():
 
 def import_authors_collection():
     authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
-    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False, header=False)
+    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False, header=None)
+    articles = pd.DataFrame({':START_ID' : articles.iloc[:, 0]})
     authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
 
     authors['affiliations'] = authors['affiliations'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
@@ -1115,6 +1116,13 @@ def import_authors_collection():
     authors['citationcount'] = authors['citationcount'].fillna(-1)
     authors['citationcount'] = authors['citationcount'].astype('int32')
 
+    joined_df = pd.merge(articles, authored_by, on = ":START_ID")
+    joined_df = joined_df.groupby(':END_ID')[":START_ID"].apply(list).reset_index(name='written_articles_ids')
+    joined_df.rename(columns={':END_ID': ':ID'}, inplace=True)
+
+    authors = pd.merge(authors, joined_df, on=":ID", how="left")
+    authors["written_articles_ids"] = authors['written_articles_ids'].apply(lambda x: x if isinstance(x, list) else [])
+
     spark = SparkSession.builder.getOrCreate()
     schema = StructType([ \
         StructField(":ID", IntegerType(), False), \
@@ -1126,8 +1134,8 @@ def import_authors_collection():
         StructField("hindex", IntegerType(), True), \
         StructField("url", StringType(), True), \
         StructField("ORCID", StringType(), True), \
+        StructField("written_articles", ArrayType(IntegerType()), True), \
     ])
-
 
     # We can see info about datatypes we uploaded in the db.
     authors_df = spark.createDataFrame(data = authors, schema = schema)
@@ -1135,7 +1143,7 @@ def import_authors_collection():
     # authors_df.explain()
     authors_df.show()
 
-    return authors_df
+    # return authors_df
 
 def import_articles_collection():
     with open(ARTICLE_FINAL_HEADER_PATH) as header_file:
@@ -1331,11 +1339,8 @@ def main():
         time.sleep(2)
         clearScreen()
 
-
 def test():
-    # import_journals_collection()
-    import_articles_collection()
-    
+    import_authors_collection()
         
 if __name__ == "__main__":
     # main()
