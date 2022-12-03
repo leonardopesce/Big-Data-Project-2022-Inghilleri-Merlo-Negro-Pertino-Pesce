@@ -40,7 +40,7 @@ from os import system, name
 from os.path import isfile
 from ast import literal_eval
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType, DateType
 from pyspark import pandas as ps
 
 # Set to a default number for having the same results in the group.
@@ -73,6 +73,7 @@ PROCEEDINGS_HEADER_PATH = "output_proceedings_header.csv"
 WWW_PATH = "output_www.csv"
 INCOLLECTION_PATH = "output_incollection.csv"
 AUTHORED_BY_PATH = "output_author_authored_by.csv"
+AUTHORED_BY_FINAL_PATH = "output_author_authored_by_new.csv"
 PUBLISHED_BY_PATH = "output_publisher_published_by.csv"
 EDITED_BY_PATH = "output_editor_edited_by.csv"
 PUBLISHER_PATH = "output_publisher.csv"
@@ -95,6 +96,7 @@ AUTHORED_BY_FINAL_PATH = "output_author_authored_by_new.csv"
 PUBLISHED_BY_FINAL_PATH = "output_publisher_published_by_new.csv"
 EDITED_BY_FINAL_PATH = "output_editor_edited_by_new.csv"
 JOURNAL_PATH = "output_journal.csv"
+ARTICLE_FINAL_PATH_EXTENDED = "output_article_final_extended_new.csv"
 
 ####################################################################################################
 #                                         PARSER FUNCTIONS                                         # 
@@ -1100,6 +1102,9 @@ def spark_import_procedure():
 
 def import_authors_collection():
     authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
+    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False, header=False)
+    authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
+
     authors['affiliations'] = authors['affiliations'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
     authors['externalids.ORCID'] = authors['externalids.ORCID'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
     authors['externalids.ORCID'] = authors['externalids.ORCID'].str[0]
@@ -1109,7 +1114,7 @@ def import_authors_collection():
     authors['papercount'] = authors['papercount'].astype('int32')
     authors['citationcount'] = authors['citationcount'].fillna(-1)
     authors['citationcount'] = authors['citationcount'].astype('int32')
-    
+
     spark = SparkSession.builder.getOrCreate()
     schema = StructType([ \
         StructField(":ID", IntegerType(), False), \
@@ -1123,29 +1128,40 @@ def import_authors_collection():
         StructField("ORCID", StringType(), True), \
     ])
 
-    # Creating a dataframe starting from a predefined schema.
+
+    # We can see info about datatypes we uploaded in the db.
     authors_df = spark.createDataFrame(data = authors, schema = schema)
-    # authors_df.printSchema()
-    # df.explain()
+    authors_df.printSchema()
+    # authors_df.explain()
     authors_df.show()
 
+    return authors_df
+
 def import_articles_collection():
-    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";")
-    articles['authors'] = articles['authors'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
-    articles['ee'] = articles['ee'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
-    articles['ee-type'] = articles['ee-type'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    with open(ARTICLE_FINAL_HEADER_PATH) as header_file:
+        header_list = list(csv.reader(header_file, delimiter=";"))
+        header_list = header_list[0]
+    for i in range(len(header_list)):
+        header_list[i] = header_list[i].split(":")
+        header_list[i] = header_list[i][0]
+    header_list.insert(0,"ID")
+    del header_list[1]
+
+    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False)
+    articles.to_csv(ARTICLE_FINAL_PATH_EXTENDED, header=header_list, sep=";", index=False)
+    articles = pd.read_csv(ARTICLE_FINAL_PATH_EXTENDED, sep=";", low_memory=False)
+    articles.drop(['cdate'], inplace=True, axis=1)
+
+    articles['mdate'] = articles['mdate'].fillna("1970-01-01")
+    #articles['authors'] = articles['authors'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles['ee'] = articles['ee'].apply(lambda x: x.split("|") if pd.notna(x) else None)
+    articles['ee-type'] = articles['ee-type'].apply(lambda x: x.split("|") if pd.notna(x) else None)
     articles['note'] = articles['note'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
     articles['note-type'] = articles['note-type'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
     articles['url'] = articles['url'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
-
     spark = SparkSession.builder.getOrCreate()
-    
-    """
     schema = StructType([ 
-        StructField("ID", IntegerType(), False), 
-        StructField("authors", ArrayType(IntegerType()), True), 
-        StructField("journal", IntegerType(), True), 
-        StructField("cdate", DateType(), True), 
+        StructField("ID", IntegerType(), False),
         StructField("ee", ArrayType(StringType()), True), 
         StructField("ee-type", ArrayType(StringType()), True), 
         StructField("key",StringType(), True), 
@@ -1159,15 +1175,17 @@ def import_articles_collection():
         StructField("url", ArrayType(StringType()), True), 
         StructField("year", IntegerType(), True), 
     ])
-    """
-    # df = spark.read.csv(ARTICLE_FINAL_PATH, sep=";", header=True, inferSchema=True)
-    # df = spark.createDataFrame(data = articles, schema = schema)
+    
+    # df = spark.read.csv(ARTICLE_FINAL_PATH_EXTENDED, sep=";", header=True, inferSchema=True)
+    articles_df = spark.createDataFrame(data = articles, schema = schema)
+    articles_df.printSchema()
+    articles_df.show(truncate=False)
     # df.printSchema()
+    # df.explain()
     # df.show(truncate=False)
-    df = spark.read.csv(ARTICLE_FINAL_PATH, sep=";", header=True, inferSchema=True)
-    df.printSchema()
-    df.explain()
-    df.show(truncate=False)
+    
+    # df = spark.read.option("header",'True').option('delimiter', ';').csv(path = ARTICLE_FINAL_PATH, schema = schema)
+    # df.printSchema()
     
 
 def import_journals_collection():
@@ -1179,6 +1197,7 @@ def import_journals_collection():
     ])
     """
     df_journal = spark.read.csv(JOURNAL_PATH, sep=";", header=True, inferSchema=True)
+    df_journal = df_journal.withColumnRenamed(":ID","Journal_ID").withColumnRenamed("journal:string","journal")
 
     """
     schema_journal_published_in = StructType([ 
@@ -1190,28 +1209,37 @@ def import_journals_collection():
     ])
     """
     df_journal_published_in = spark.read.csv(PUBLISHED_IN_PATH, sep=";", header=True, inferSchema=True)
+    df_journal_published_in = df_journal_published_in.withColumnRenamed(":START_ID","START_ID").withColumnRenamed(":END_ID","END_ID")
 
     """
-    schema_journal_published_by = StructType([ 
+    schema_publisher_published_by = StructType([ 
         StructField(":START_ID", IntegerType(), False),
         StructField(":END_ID", IntegerType(), False),
     ])
     """
-    df_journal_published_by = spark.read.csv(PUBLISHED_BY_FINAL_PATH, sep=";", header=True, inferSchema=True)
+    df_publisher_published_by = spark.read.csv(PUBLISHED_BY_FINAL_PATH, sep=";", header=True, inferSchema=True)
+    df_publisher_published_by = df_publisher_published_by.withColumnRenamed(":START_ID","START_ID").withColumnRenamed(":END_ID","END_ID")
 
     """
     schema_publisher = StructType([ 
         StructField(":ID", IntegerType(), False),
         StructField("publisher", StringType(), True),
     ])
-    """
+    
     df_publisher = spark.read.csv(PUBLISHER_PATH, sep=";", header=True, inferSchema=True)
+    df_publisher = df_publisher.withColumnRenamed(":ID","Publisher_ID").withColumnRenamed("publisher:string","publisher")
 
+    df_tmp = df_journal.join(df_publisher_published_by, df_journal.Journal_ID == df_publisher_published_by.START_ID, "left") \
+                            .drop(df_publisher_published_by.START_ID)
+    df_journal_final = df_tmp.join(df_publisher, df_tmp.END_ID == df_publisher.Publisher_ID, "left") \
+                            .drop(df_tmp.END_ID).drop(df_publisher.Publisher_ID)
+    """
+    
     # Print detected 
     # We can see info about datatypes we uploaded in the db.
-    df_journal_published_in.printSchema()
-    df_journal_published_in.explain()
-    df_journal_published_in.show(truncate=False)
+    df_journal.printSchema()
+    df_journal.explain()
+    df_journal.show(truncate=False)
 
 
 ####################################################################################################
