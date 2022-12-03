@@ -82,6 +82,19 @@ PAPERS_PATH_CSV = "papers.csv"
 PAPERS_TEXT_MERGED_PATH = "papers_text.json"
 PAPERS_FINAL_PATH = "papers_full_info.json"
 ARTICLE_FINAL_PATH = "output_article_new.csv"
+BOOK_FINAL_PATH = "output_book_new.csv"
+PROCEEDINGS_FINAL_PATH = "output_proceedings_new.csv"
+PHD_THESIS_FINAL_PATH = "output_phdthesis_new.csv"
+INPROCEEDINGS_FINAL_PATH = "output_inproceedings_new.csv"
+ARTICLE_FINAL_HEADER_PATH = "output_article_header_new.csv"
+BOOK_FINAL_HEADER_PATH = "output_book_header_new.csv"
+PROCEEDINGS_FINAL_HEADER_PATH = "output_proceedings_header_new.csv"
+PHD_THESIS_FINAL_HEADER_PATH = "output_phdthesis_header_new.csv"
+INPROCEEDINGS_FINAL_HEADER_PATH = "output_inproceedings_header_new.csv"
+AUTHORED_BY_FINAL_PATH = "output_author_authored_by_new.csv"
+PUBLISHED_BY_FINAL_PATH = "output_publisher_published_by_new.csv"
+EDITED_BY_FINAL_PATH = "output_editor_edited_by_new.csv"
+JOURNAL_PATH = "output_journal.csv"
 
 ####################################################################################################
 #                                         PARSER FUNCTIONS                                         # 
@@ -288,7 +301,7 @@ def update_authoredby_relationship():
     authoredby_frame.drop(authoredby_frame[cond].index, inplace = True)
 
     # Saving the new authoredby rels.
-    authoredby_frame.to_csv(AUTHORED_BY_PATH[:len(AUTHORED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+    authoredby_frame.to_csv(AUTHORED_BY_FINAL_PATH, sep=";", index=False)
 
 def update_publishedby_relationship():
     """Removes from the PUBLISHED_BY relationship frame, the entries which contains an incollection ID in their START_ID."""
@@ -302,7 +315,7 @@ def update_publishedby_relationship():
     publishedby_frame.drop(publishedby_frame[cond].index, inplace = True)
 
     # Saving the new publishedby rel.
-    publishedby_frame.to_csv(PUBLISHED_BY_PATH[:len(PUBLISHED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+    publishedby_frame.to_csv(PUBLISHED_BY_FINAL_PATH, sep=";", index=False)
 
 def update_editedby_relationship():
     """Removes from the EDITED_BY relationship frame, the entries which contains an homepage ID in their START_ID.
@@ -317,7 +330,7 @@ def update_editedby_relationship():
     editedby_frame.drop(editedby_frame[cond].index, inplace = True)
 
     # Saving the new publishedby rel.
-    editedby_frame.to_csv(EDITED_BY_PATH[:len(EDITED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+    editedby_frame.to_csv(EDITED_BY_FINAL_PATH, sep=";", index=False)
 
 def clean_fields(path: str, field_idx: list):
     """Given a path of a dataset csv file and a list of indexes of the corresponding dataframe to drop, then it returns a dataframe with all those columns removed.
@@ -330,9 +343,26 @@ def clean_fields(path: str, field_idx: list):
 
     # Dropping all the columns corresponding to the list of indexes passed.
     frame.drop(frame.columns[field_idx], axis=1, inplace=True)
-    if(path == ARTICLE_PATH):
+    #if(path == ARTICLE_PATH):
+    #    frame.iloc[:,13] = frame.iloc[:, 13].astype('Int64')
+    #frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False, header=False)
+    if path == ARTICLE_PATH:
         frame.iloc[:,13] = frame.iloc[:, 13].astype('Int64')
-    frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False, header=False)
+        final_path = ARTICLE_FINAL_PATH
+    elif path == BOOK_PATH:
+        final_path = BOOK_FINAL_PATH
+    elif path == PROCEEDINGS_PATH:
+        final_path = PROCEEDINGS_FINAL_PATH
+    elif path == PHD_THESIS_PATH:
+        final_path = PHD_THESIS_FINAL_PATH
+    elif path == INPROCEEDINGS_PATH:
+        final_path = INPROCEEDINGS_FINAL_PATH
+        
+    frame.to_csv(final_path, sep = ";", index=False, header=False)
+            
+
+
+
 
 def clean_fields_header(path: str, field_idx: list):
     """Given a path of a dataset headers csv file and a list of indexes of the corresponding dataframe to drop, then it returns a dataframe with all those columns removed.
@@ -343,7 +373,20 @@ def clean_fields_header(path: str, field_idx: list):
     """
     frame = pd.read_csv(path, sep = ";", low_memory=False)
     frame.drop(frame.columns[field_idx], axis=1, inplace=True)
-    frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False)
+    # frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False)
+    if path == ARTICLE_HEADER_PATH:
+        final_path = ARTICLE_FINAL_HEADER_PATH
+    elif path == BOOK_HEADER_PATH:
+        final_path = BOOK_FINAL_HEADER_PATH
+    elif path == PROCEEDINGS_HEADER_PATH:
+        final_path = PROCEEDINGS_FINAL_HEADER_PATH
+    elif path == PHD_THESIS_HEADER_PATH:
+        final_path = PHD_THESIS_FINAL_HEADER_PATH
+    elif path == INPROCEEDINGS_HEADER_PATH:
+        final_path = INPROCEEDINGS_FINAL_HEADER_PATH
+
+    frame.to_csv(final_path, sep = ";", index=False)
+
 
 def neo4jSetup():
     """Perform all the actions to clean the data and get them ready to be imported in Neo4J."""
@@ -1036,7 +1079,7 @@ def check_spark_dependencies():
     Returns:
         bool: true if all the required files already exist in the script directory, false otherwise.
     """
-    return isfile(AUTHORS_NODE_EXTENDED_PATH) and isfile(ARTICLE_FINAL_PATH)
+    return isfile(AUTHORS_NODE_EXTENDED_PATH) and isfile(ARTICLE_FINAL_PATH) and isfile(ARTICLE_FINAL_HEADER_PATH) and isfile(PUBLISHED_BY_FINAL_PATH) and isfile(PUBLISHER_PATH) and isfile(PUBLISHED_IN_PATH) and isfile(JOURNAL_PATH)
 
 def setup_spark_dataset():
     """Set up the dataset files for spark if they have not been generated previosly."""
@@ -1058,33 +1101,118 @@ def spark_import_procedure():
 def import_authors_collection():
     authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
     authors['affiliations'] = authors['affiliations'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
-    authors['affiliations'] = authors['affiliations'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
-
-    for affiliation in authors[authors.affiliations.notnull()].affiliations : 
-        print(affiliation, type(affiliation))
-    # TODO: iterate over python dataframe rows and build custom rdds
-    # authors_frame = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
+    authors['externalids.ORCID'] = authors['externalids.ORCID'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    authors['externalids.ORCID'] = authors['externalids.ORCID'].str[0]
+    authors['hindex'] = authors['hindex'].fillna(-1)
+    authors['hindex'] = authors['hindex'].astype('int32')
+    authors['papercount'] = authors['papercount'].fillna(-1)
+    authors['papercount'] = authors['papercount'].astype('int32')
+    authors['citationcount'] = authors['citationcount'].fillna(-1)
+    authors['citationcount'] = authors['citationcount'].astype('int32')
+    
     spark = SparkSession.builder.getOrCreate()
     schema = StructType([ \
         StructField(":ID", IntegerType(), False), \
         StructField("name", StringType(), False), \
         StructField("affiliations", ArrayType(StringType()), True), \
         StructField("homepage", StringType(), True), \
-        StructField("papercount", FloatType(), True), \
-        StructField("citationcount", FloatType(), True), \
-        StructField("hindex", FloatType(), True), \
+        StructField("papercount", IntegerType(), True), \
+        StructField("citationcount", IntegerType(), True), \
+        StructField("hindex", IntegerType(), True), \
         StructField("url", StringType(), True), \
-        StructField("externalids.ORCID", ArrayType(StringType()), True), \
+        StructField("ORCID", StringType(), True), \
     ])
 
-    df = spark.read.csv(AUTHORS_NODE_EXTENDED_PATH, sep=";", header=True, inferSchema=True)
+    # Creating a dataframe starting from a predefined schema.
+    authors_df = spark.createDataFrame(data = authors, schema = schema)
+    # authors_df.printSchema()
+    # df.explain()
+    authors_df.show()
 
-    # Print detected 
-    # We can see info about datatypes we uploaded in the db.
+def import_articles_collection():
+    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";")
+    articles['authors'] = articles['authors'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles['ee'] = articles['ee'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles['ee-type'] = articles['ee-type'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles['note'] = articles['note'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles['note-type'] = articles['note-type'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles['url'] = articles['url'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+
+    spark = SparkSession.builder.getOrCreate()
+    
+    """
+    schema = StructType([ 
+        StructField("ID", IntegerType(), False), 
+        StructField("authors", ArrayType(IntegerType()), True), 
+        StructField("journal", IntegerType(), True), 
+        StructField("cdate", DateType(), True), 
+        StructField("ee", ArrayType(StringType()), True), 
+        StructField("ee-type", ArrayType(StringType()), True), 
+        StructField("key",StringType(), True), 
+        StructField("mdate", DateType(), True), 
+        StructField("month", StringType(), True), 
+        StructField("note", ArrayType(StringType()), True), 
+        StructField("note-label", StringType(), True), 
+        StructField("note-type", ArrayType(StringType()), True), 
+        StructField("publtype", StringType(), True), 
+        StructField("title", StringType(), True), 
+        StructField("url", ArrayType(StringType()), True), 
+        StructField("year", IntegerType(), True), 
+    ])
+    """
+    # df = spark.read.csv(ARTICLE_FINAL_PATH, sep=";", header=True, inferSchema=True)
+    # df = spark.createDataFrame(data = articles, schema = schema)
+    # df.printSchema()
+    # df.show(truncate=False)
+    df = spark.read.csv(ARTICLE_FINAL_PATH, sep=";", header=True, inferSchema=True)
     df.printSchema()
     df.explain()
     df.show(truncate=False)
     
+
+def import_journals_collection():
+    spark = SparkSession.builder.getOrCreate()
+    """
+    schema_journal = StructType([ 
+        StructField(":ID", IntegerType(), False),
+        StructField("journal", StringType(), True),
+    ])
+    """
+    df_journal = spark.read.csv(JOURNAL_PATH, sep=";", header=True, inferSchema=True)
+
+    """
+    schema_journal_published_in = StructType([ 
+        StructField(":START_ID", IntegerType(), False),
+        StructField(":END_ID", IntegerType(), False),
+        StructField("number", IntegerType(), True),
+        StructField("pages", StringType(), True),
+        StructField("volume", StringType(),True),
+    ])
+    """
+    df_journal_published_in = spark.read.csv(PUBLISHED_IN_PATH, sep=";", header=True, inferSchema=True)
+
+    """
+    schema_journal_published_by = StructType([ 
+        StructField(":START_ID", IntegerType(), False),
+        StructField(":END_ID", IntegerType(), False),
+    ])
+    """
+    df_journal_published_by = spark.read.csv(PUBLISHED_BY_FINAL_PATH, sep=";", header=True, inferSchema=True)
+
+    """
+    schema_publisher = StructType([ 
+        StructField(":ID", IntegerType(), False),
+        StructField("publisher", StringType(), True),
+    ])
+    """
+    df_publisher = spark.read.csv(PUBLISHER_PATH, sep=";", header=True, inferSchema=True)
+
+    # Print detected 
+    # We can see info about datatypes we uploaded in the db.
+    df_journal_published_in.printSchema()
+    df_journal_published_in.explain()
+    df_journal_published_in.show(truncate=False)
+
 
 ####################################################################################################
 #                                          GRAPHICS                                                #
@@ -1175,11 +1303,12 @@ def main():
         time.sleep(2)
         clearScreen()
 
+
 def test():
-    print("ciao")
-
+    # import_journals_collection()
+    import_articles_collection()
     
-
+        
 if __name__ == "__main__":
     # main()
     test()
