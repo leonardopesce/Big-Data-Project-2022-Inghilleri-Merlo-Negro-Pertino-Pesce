@@ -33,10 +33,15 @@ import random
 import requests
 import names
 import lorem
+import time
 
 from random_object_id import generate
 from os import system, name
+from os.path import isfile
 from ast import literal_eval
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType
+from pyspark import pandas as ps
 
 # Set to a default number for having the same results in the group.
 random.seed(1234)
@@ -55,6 +60,7 @@ CITE_PATH = "output_cite.csv"
 CITE_RELATIONSHIP = "output_cite_relationship.csv"
 AUTHORS_DATA_PATH = "authors.csv"
 AUTHORS_NODE_PATH = "output_author.csv"
+AUTHORS_NODE_EXTENDED_PATH = "output_author_extended.csv"
 BELONG_TO_PATH = "output_belong_relationship.csv"
 PHD_THESIS_PATH = "output_phdthesis.csv"
 PUBLISHED_IN_PATH = "output_journal_published_in.csv"
@@ -75,6 +81,7 @@ REDUCED_PAPERS_PATH_JSONL = "reduced_papers.jsonl"
 PAPERS_PATH_CSV = "papers.csv"
 PAPERS_TEXT_MERGED_PATH = "papers_text.json"
 PAPERS_FINAL_PATH = "papers_full_info.json"
+ARTICLE_FINAL_PATH = "output_article_new.csv"
 
 ####################################################################################################
 #                                         PARSER FUNCTIONS                                         # 
@@ -357,7 +364,7 @@ def neo4jSetup():
 
     progress_bar(55, 100, "EXTENDING AUTHORS INFORMATION")
     authors_data = authors_additional_information()
-    authors_data.to_csv("output_author_extended.csv", sep=";", index=False)
+    authors_data.to_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";", index=False)
 
     progress_bar(70, 100, "COMPILING CITE RELATIONSHIP")
     cite_relationship = compile_relationship(merge_cite_nodes(), concatenated_publications_frame)
@@ -826,6 +833,11 @@ def fix_dates():
     with open(PAPERS_FINAL_PATH, "w") as papers_file:
         json.dump(new_papers, papers_file, indent=4)
 
+
+####################################################################################################
+#                                       MongoDB Random Setup                                       #
+####################################################################################################
+
 def mongo_db_setup_random(number_of_papers: int = 5000):
     skeleton_doc = '{"corpusid": 0, "abstract": "", "updated": {}, "externalids": {}, "url": "", "title": "", "authors": [], "venue": "", "year": 0, "referencecount": 0, "citationcount": 0, "influentialcitationcount": 0, "isopenaccess": true, "s2fieldsofstudy": [], "publicationtypes": [], "publicationdate": "", "journal": {}, "content": {"sections": [],"list_of_figures": []}, "citations": []}'
     skeleton_aut = '{"authorid": 0, "name": "", "papercount": 0, "citationcount": 0, "hindex": 0, "s2url": "", "externalids.DBLP": ""}'
@@ -840,50 +852,50 @@ def mongo_db_setup_random(number_of_papers: int = 5000):
     authors_name_list = []
     for _ in range(number_of_papers):
         authors = [gen_aut(skeleton_aut) for _ in range(random.randint(1, 5))]
-        oid_title_authors_list.append([generate(), lorem.sentence(), authors])
-        authors_name_list.append([author["name"] for author in authors])
+    oid_title_authors_list.append([generate(), lorem.sentence(), authors])
+    authors_name_list.append([author["name"] for author in authors])
 
     for i in range(number_of_papers):
         doc = json.loads(skeleton_doc)
-        doc["corpusid"] = i
-        doc["abstract"] = lorem.paragraph()
-        date = random.randint(2010, 2022)
-        doc["update"] = {"$date": f'{date}-{str(random.randint(1, 12)).zfill(2)}'
+    doc["corpusid"] = i
+    doc["abstract"] = lorem.paragraph()
+    date = random.randint(2010, 2022)
+    doc["update"] = {"$date": f'{date}-{str(random.randint(1, 12)).zfill(2)}'
                               f'-{str(random.randint(1, 28)).zfill(2)}T{str(random.randint(1, 24)).zfill(2)}'
                               f':{str(random.randint(1, 60)).zfill(2)}:{str(random.randint(1, 60)).zfill(2)}'
                               f'.000+00:00'}
-        doc["exertenalids"] = {
-            "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",                                    
-            "MAG": str(random.randint(1000000000, 9999999999)),
-            "corpusid": str(i),
-            "DOI": str(random.randint(10000000000, 99999999999))
-        }
-        doc["URL"] = f'https://www.semanticscholar.org/paper/{oid_title_authors_list[i][1].replace(" ", "")}'
-        doc["title"] = oid_title_authors_list[i][1]
-        doc["authors"] = oid_title_authors_list[i][2]
-        doc["venue"] = lorem.sentence().split(' ')[0] + lorem.sentence().split(' ')[0]
-        doc["year"] = random.randint(2009, date)
-        numRef = random.randint(1, 100)
-        doc["referencecount"] = numRef
-        numCit = random.randint(1, 10)
-        doc["citationcount"] = numCit
-        doc["influentialcitationcount"] = random.randint(0, numCit)
-        s2fieldsofstudy = ["Economics", "Computer Science", "Math", "Bio"]
-        doc["s2fieldsofstudy"] = s2fieldsofstudy[:random.randint(1, len(s2fieldsofstudy) - 1)]
-        doc["publicationtypes"] = ["JournalArticle"]
-        doc["publicationdate"] = doc["update"]
-        tmp = random.randint(1, 100)
-        doc["journal"] = {
-            "name": doc["venue"],
-            "volume": str(random.randint(1, 20)),
-            "pages": f'{tmp}-{random.randint(tmp, tmp + 10)} '
-        }
-        doc["content"]["section"] = [gen_sec(skeleton_sec, skeleton_par, skeleton_fig) for _ in
-                                    range(random.randint(1, 10))]
-        doc["content"]["list_of_figures"] = [gen_img_small(skeleton_fig_small) for _ in range(random.randint(1, 10))]
-        doc["citations"] = [gen_cit(skeleton_cit, random.randint(1, number_of_papers)) for _ in
-                            range(random.randint(1, 10))]
-        docArray.append(doc)
+    doc["exertenalids"] = {
+        "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",                                    # PROBLEMA QUA
+        "MAG": str(random.randint(1000000000, 9999999999)),
+        "corpusid": str(i),
+        "DOI": str(random.randint(10000000000, 99999999999))
+    }
+    doc["URL"] = f'https://www.semanticscholar.org/paper/{oid_title_authors_list[i][1].replace(" ", "")}'
+    doc["title"] = oid_title_authors_list[i][1]
+    doc["authors"] = oid_title_authors_list[i][2]
+    doc["venue"] = lorem.sentence().split(' ')[0] + lorem.sentence().split(' ')[0]
+    doc["year"] = random.randint(2009, date)
+    numRef = random.randint(1, 100)
+    doc["referencecount"] = numRef
+    numCit = random.randint(1, 10)
+    doc["citationcount"] = numCit
+    doc["influentialcitationcount"] = random.randint(0, numCit)
+    s2fieldsofstudy = ["Economics", "Computer Science", "Math", "Bio"]
+    doc["s2fieldsofstudy"] = s2fieldsofstudy[:random.randint(1, len(s2fieldsofstudy) - 1)]
+    doc["publicationtypes"] = ["JournalArticle"]
+    doc["publicationdate"] = doc["update"]
+    tmp = random.randint(1, 100)
+    doc["journal"] = {
+        "name": doc["venue"],
+        "volume": str(random.randint(1, 20)),
+        "pages": f'{tmp}-{random.randint(tmp, tmp + 10)} '
+    }
+    doc["content"]["section"] = [gen_sec(skeleton_sec, skeleton_par, skeleton_fig) for _ in
+                                 range(random.randint(1, 10))]
+    doc["content"]["list_of_figures"] = [gen_img_small(skeleton_fig_small) for _ in range(random.randint(1, 10))]
+    doc["citations"] = [gen_cit(skeleton_cit, random.randint(1, number_of_papers)) for _ in
+                        range(random.randint(1, 10))]
+    docArray.append(doc)
 
     with open(f'randomdocs.json', 'w') as file:
         json.dump(docArray, file, indent=4)
@@ -993,7 +1005,87 @@ def mongo_db_setup():
     fix_dates()
     progress_bar(100, 100)
 
+
+####################################################################################################
+#                                            Spark                                                 #
+####################################################################################################
+def spark_session_handler():
+    """ Handles the textual menu and the user choices for the Spark Session."""
+    clearScreen()
+    printLogo()
     
+    while(spark_operation_chosen := int(input("What operation should be performed?\n\t1. Setup dataset (N.B. : if you have already setup the dataset for Neo4J skip this step)\n\t2. Import dataset into Spark (if the dataset has not been created it will automatically perform the previous action)\n\t3. Perform example queries\n\t 10. Exit\nChoice: "))):
+        if spark_operation_chosen == 1:
+            # Setup dataset operation
+            setup_spark_dataset()
+        elif spark_operation_chosen == 2:
+            # Import dataset into spark
+            spark_import_procedure()
+        elif spark_operation_chosen == 3:
+            print("perform queries")
+        elif spark_operation_chosen == 10:
+            print("quit")
+        
+        time.sleep(2)
+        clearScreen()
+        printLogo()
+
+def check_spark_dependencies():
+    """Checks whether all the required files for spark have already been generated. Returns true if all the required files are already present in the script directory, false otherwise.
+
+    Returns:
+        bool: true if all the required files already exist in the script directory, false otherwise.
+    """
+    return isfile(AUTHORS_NODE_EXTENDED_PATH) and isfile(ARTICLE_FINAL_PATH)
+
+def setup_spark_dataset():
+    """Set up the dataset files for spark if they have not been generated previosly."""
+
+    if(check_spark_dependencies()):
+        print("The dataset has been already generated. Skipping...")
+    else:
+        neo4jSetup()                    # Our setup for spark is built upon the Neo4J one.
+                                        # TODO: maybe other operations are necessary.
+
+def spark_import_procedure():
+    """Imports the dataset into spark."""
+
+    # If the dataset hasn't already been setup, it cannot be imported. 
+    if(not check_spark_dependencies()):
+        print("The dataset has not been generated yet. The setup procedure will be called...")
+        setup_spark_dataset()
+
+def import_authors_collection():
+    authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
+    authors['affiliations'] = authors['affiliations'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    authors['affiliations'] = authors['affiliations'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+
+    for affiliation in authors[authors.affiliations.notnull()].affiliations : 
+        print(affiliation, type(affiliation))
+    # TODO: iterate over python dataframe rows and build custom rdds
+    # authors_frame = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
+    spark = SparkSession.builder.getOrCreate()
+    schema = StructType([ \
+        StructField(":ID", IntegerType(), False), \
+        StructField("name", StringType(), False), \
+        StructField("affiliations", ArrayType(StringType()), True), \
+        StructField("homepage", StringType(), True), \
+        StructField("papercount", FloatType(), True), \
+        StructField("citationcount", FloatType(), True), \
+        StructField("hindex", FloatType(), True), \
+        StructField("url", StringType(), True), \
+        StructField("externalids.ORCID", ArrayType(StringType()), True), \
+    ])
+
+    df = spark.read.csv(AUTHORS_NODE_EXTENDED_PATH, sep=";", header=True, inferSchema=True)
+
+    # Print detected 
+    # We can see info about datatypes we uploaded in the db.
+    df.printSchema()
+    df.explain()
+    df.show(truncate=False)
+    
+
 ####################################################################################################
 #                                          GRAPHICS                                                #
 ####################################################################################################
@@ -1076,13 +1168,18 @@ def main():
         elif(operation_chosen == 3):
             printLogo()
             mongo_db_setup_random(int(input('How many papers do you want to generate? (default 5000) : ')))
+        elif(operation_chosen == 4):
+            printLogo()
+            spark_session_handler()
         
+        time.sleep(2)
         clearScreen()
 
 def test():
-    generate_subsections()
+    print("ciao")
+
     
 
 if __name__ == "__main__":
-    main()
-    # test()
+    # main()
+    test()
