@@ -41,6 +41,7 @@ from os.path import isfile
 from ast import literal_eval
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType, DateType
+from pyspark.sql.functions import collect_set
 from pyspark import pandas as ps
 
 # Set to a default number for having the same results in the group.
@@ -1166,7 +1167,8 @@ def import_articles_collection():
     articles['ee-type'] = articles['ee-type'].apply(lambda x: x.split("|") if pd.notna(x) else None)
     articles['note'] = articles['note'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
     articles['note-type'] = articles['note-type'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
-    articles['url'] = articles['url'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles["url"] = articles["url"].apply(lambda x: x if pd.notna(x) else "")
+    articles["url"] = articles["url"].apply(lambda x: x.split("|"))
     spark = SparkSession.builder.getOrCreate()
     schema = StructType([ 
         StructField("ID", IntegerType(), False),
