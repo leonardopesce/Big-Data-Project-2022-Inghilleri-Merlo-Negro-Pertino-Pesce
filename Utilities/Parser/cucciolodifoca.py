@@ -1198,56 +1198,43 @@ def import_articles_collection():
 
 def import_journals_collection():
     spark = SparkSession.builder.getOrCreate()
-    """
-    schema_journal = StructType([ 
-        StructField(":ID", IntegerType(), False),
-        StructField("journal", StringType(), True),
-    ])
-    """
-    df_journal = spark.read.csv(JOURNAL_PATH, sep=";", header=True, inferSchema=True)
-    df_journal = df_journal.withColumnRenamed(":ID","Journal_ID").withColumnRenamed("journal:string","journal")
 
-    """
-    schema_journal_published_in = StructType([ 
-        StructField(":START_ID", IntegerType(), False),
-        StructField(":END_ID", IntegerType(), False),
-        StructField("number", IntegerType(), True),
-        StructField("pages", StringType(), True),
-        StructField("volume", StringType(),True),
-    ])
-    """
+    df_journal = spark.read.csv(JOURNAL_PATH, sep=";", header=True, inferSchema=True)
+    df_journal = df_journal.withColumnRenamed(":ID","ISSN").withColumnRenamed("journal:string","name")
+
     df_journal_published_in = spark.read.csv(PUBLISHED_IN_PATH, sep=";", header=True, inferSchema=True)
     df_journal_published_in = df_journal_published_in.withColumnRenamed(":START_ID","START_ID").withColumnRenamed(":END_ID","END_ID")
-
-    """
-    schema_publisher_published_by = StructType([ 
-        StructField(":START_ID", IntegerType(), False),
-        StructField(":END_ID", IntegerType(), False),
-    ])
-    """
-    df_publisher_published_by = spark.read.csv(PUBLISHED_BY_FINAL_PATH, sep=";", header=True, inferSchema=True)
-    df_publisher_published_by = df_publisher_published_by.withColumnRenamed(":START_ID","START_ID").withColumnRenamed(":END_ID","END_ID")
-
-    """
-    schema_publisher = StructType([ 
-        StructField(":ID", IntegerType(), False),
-        StructField("publisher", StringType(), True),
-    ])
     
-    df_publisher = spark.read.csv(PUBLISHER_PATH, sep=";", header=True, inferSchema=True)
-    df_publisher = df_publisher.withColumnRenamed(":ID","Publisher_ID").withColumnRenamed("publisher:string","publisher")
-
-    df_tmp = df_journal.join(df_publisher_published_by, df_journal.Journal_ID == df_publisher_published_by.START_ID, "left") \
-                            .drop(df_publisher_published_by.START_ID)
-    df_journal_final = df_tmp.join(df_publisher, df_tmp.END_ID == df_publisher.Publisher_ID, "left") \
-                            .drop(df_tmp.END_ID).drop(df_publisher.Publisher_ID)
-    """
+    set_journal = df_journal_published_in.select(collect_set("END_ID")).collect()[0][0]
     
+    dataTmp = {}
+    csv_file = pd.read_csv(PUBLISHED_IN_PATH, sep=";", low_memory=False)
+
+    for i in range(1, len(csv_file.index)):
+        if csv_file.loc[i, ':END_ID'] in dataTmp.keys():
+            dataTmp[csv_file.loc[i, ':END_ID']].append(int(csv_file.loc[i, ':START_ID']))
+        else:
+            dataTmp[csv_file.loc[i, ':END_ID']] = [(int(csv_file.loc[i, ':START_ID']))]
+    
+    data = []
+    columns = StructType([
+                StructField("END_ID", IntegerType(), False),
+                StructField("NumArticles", IntegerType(), True),
+                StructField("Articles", ArrayType(IntegerType()), True)
+            ])
+
+    for el in set_journal:
+        data.append([el, len(dataTmp[el]), dataTmp[el]])
+
+    df_tmp = spark.createDataFrame(data = data, schema = columns)
+
+    df_journal_final = df_journal.join(df_tmp, df_journal.Journal_ID == df_tmp.END_ID, "left").drop(df_tmp.END_ID)
+
     # Print detected 
     # We can see info about datatypes we uploaded in the db.
-    df_journal.printSchema()
-    df_journal.explain()
-    df_journal.show(truncate=False)
+    df_journal_final.printSchema()
+    df_journal_final.explain()
+    df_journal_final.show()
 
 
 ####################################################################################################
