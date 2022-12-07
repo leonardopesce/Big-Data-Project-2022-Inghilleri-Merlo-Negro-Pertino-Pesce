@@ -22,6 +22,7 @@
 #  \\_______-/     \     \  \                                                                      #
 #                   \-_-_-_-_-                                                                     #
 ####################################################################################################
+from operator import concat
 import pandas as pd
 import numpy as np
 import csv
@@ -36,9 +37,10 @@ import lorem
 import time
 
 from random_object_id import generate
-from os import system, name
+from os import system, name, path
 from os.path import isfile
 from ast import literal_eval
+from pyspark.sql.functions import col 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType, DateType
 from pyspark.sql.functions import collect_set
@@ -98,6 +100,9 @@ PUBLISHED_BY_FINAL_PATH = "output_publisher_published_by_new.csv"
 EDITED_BY_FINAL_PATH = "output_editor_edited_by_new.csv"
 JOURNAL_PATH = "output_journal.csv"
 ARTICLE_FINAL_PATH_EXTENDED = "output_article_final_extended_new.csv"
+PARQUET_ARTICLE = "df_article.parquet"
+PARQUET_JOURNAL = "df_journal.parquet"
+PARQUET_AUTHOR = "df_author.parquet"
 
 ####################################################################################################
 #                                         PARSER FUNCTIONS                                         # 
@@ -1142,9 +1147,9 @@ def import_authors_collection():
     authors_df = spark.createDataFrame(data = authors, schema = schema)
     authors_df.printSchema()
     # authors_df.explain()
-    authors_df.show()
-
-    # return authors_df
+    # authors_df.show()
+    authors_df.write.format('orc').mode('overwrite').parquet("df_authors")
+    return authors_df
 
 def import_articles_collection():
     # serve a inserire l'header in article.csv
@@ -1210,8 +1215,9 @@ def import_articles_collection():
     ])
 
     articles_df = spark.createDataFrame(data = articles, schema = schema)
-    articles_df.printSchema()
-    articles_df.show()
+    # articles_df.printSchema()
+    # articles_df.show()
+    articles_df.toPandas().to_parquet("df_articles.parquet")
     
 
 def import_journals_collection():
@@ -1246,14 +1252,14 @@ def import_journals_collection():
 
     df_tmp = spark.createDataFrame(data = data, schema = columns)
 
-    df_journal_final = df_journal.join(df_tmp, df_journal.Journal_ID == df_tmp.END_ID, "left").drop(df_tmp.END_ID)
+    df_journal_final = df_journal.join(df_tmp, df_journal.ISSN == df_tmp.END_ID, "left").drop(df_tmp.END_ID)
 
     # Print detected 
     # We can see info about datatypes we uploaded in the db.
     df_journal_final.printSchema()
-    df_journal_final.explain()
-    df_journal_final.show()
-
+    #df_journal_final.explain()
+    #df_journal_final.show()
+    df_journal.toPandas().to_parquet("df_journal.parquet")
 
 ####################################################################################################
 #                                          GRAPHICS                                                #
@@ -1311,6 +1317,26 @@ def progress_bar(progress : int, total : int, custom_string: str = ""):
     
     print(f"\r|{bar}| {percent :.2f}%", end = "\r")
 
+def setup_spark():
+    """if not path.exists(PARQUET_ARTICLE):
+        import_articles_collection()"""
+    if not path.exists(PARQUET_JOURNAL):
+        import_journals_collection()
+    """if not path.exists(PARQUET_AUTHOR):
+        import_authors_collection()"""
+    
+    spark = SparkSession.builder.getOrCreate()
+
+    #df_article = spark.createDataFrame(pd.read_parquet(PARQUET_ARTICLE))
+    df_journal = spark.createDataFrame(pd.read_parquet(PARQUET_JOURNAL))
+    #df_author = spark.createDataFrame(pd.read_parquet(PARQUET_AUTHOR))
+
+    # QUERY 1
+    df_journal.printSchema()
+    df_journal.show(truncate=True)
+
+
+
 ####################################################################################################
 #                                              MAIN                                                #
 ####################################################################################################
@@ -1345,7 +1371,7 @@ def main():
         clearScreen()
 
 def test():
-    import_authors_collection()
+    setup_spark()
         
 if __name__ == "__main__":
     # main()
