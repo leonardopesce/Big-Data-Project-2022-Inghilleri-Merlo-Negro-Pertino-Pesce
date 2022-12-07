@@ -27,7 +27,7 @@ import numpy as np
 import csv
 import json
 import jsonlines
-import datetime
+from datetime import datetime
 import glob
 import random
 import requests
@@ -1147,55 +1147,71 @@ def import_authors_collection():
     # return authors_df
 
 def import_articles_collection():
+    # serve a inserire l'header in article.csv
     with open(ARTICLE_FINAL_HEADER_PATH) as header_file:
         header_list = list(csv.reader(header_file, delimiter=";"))
         header_list = header_list[0]
     for i in range(len(header_list)):
         header_list[i] = header_list[i].split(":")
         header_list[i] = header_list[i][0]
-    header_list.insert(0,"ID")
+    header_list.insert(0,":ID")
     del header_list[1]
-
     articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False)
     articles.to_csv(ARTICLE_FINAL_PATH_EXTENDED, header=header_list, sep=";", index=False)
+    
+    
     articles = pd.read_csv(ARTICLE_FINAL_PATH_EXTENDED, sep=";", low_memory=False)
-    articles.drop(['cdate'], inplace=True, axis=1)
-
-    articles['mdate'] = articles['mdate'].fillna("1970-01-01")
-    #articles['authors'] = articles['authors'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles.drop(['cdate', 'note-type'], inplace=True, axis=1)
     articles['ee'] = articles['ee'].apply(lambda x: x.split("|") if pd.notna(x) else None)
     articles['ee-type'] = articles['ee-type'].apply(lambda x: x.split("|") if pd.notna(x) else None)
-    articles['note'] = articles['note'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
-    articles['note-type'] = articles['note-type'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    articles['mdate'] = articles['mdate'].apply(lambda x: datetime.strptime(x,'%Y-%m-%d') if pd.notna(x) else None)
+    articles['note'] = articles['note'].apply(lambda x: x.split("|") if pd.notna(x) else None)
     articles["url"] = articles["url"].apply(lambda x: x if pd.notna(x) else "")
     articles["url"] = articles["url"].apply(lambda x: x.split("|"))
+    articles['year'] = articles['year'].fillna(-1)
+    articles['year'] = articles['year'].astype('int32')
+
+    """authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";", low_memory=False, skiprows = 1, header=None)
+    authors = pd.DataFrame({':END_ID' : authors.iloc[:, 0]})"""
+    #authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
+
+    """joined_df = pd.merge(authors, authored_by, on = ":END_ID") # forse non serve"""
+    #authored_by = authored_by.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='authors_ids')
+    #authored_by.rename(columns={':START_ID': ':ID'}, inplace=True)
+
+    #articles = pd.merge(articles, authored_by, on=":ID", how="left")
+    #articles["authors_ids"] = articles['authors_ids'].apply(lambda x: x if isinstance(x, list) else [])
+
+    #published_in = pd.read_csv(PUBLISHED_IN_PATH, sep=';', low_memory=False)
+    #published_in[':END_ID'] = published_in[':END_ID'].fillna(-1)
+    #published_in[':END_ID'] = published_in[':END_ID'].astype('int32')
+    #published_in.rename(columns={':START_ID': ':ID'}, inplace=True)
+    #articles = pd.merge(articles, published_in, on=":ID", how="left")
+
     spark = SparkSession.builder.getOrCreate()
-    schema = StructType([ 
-        StructField("ID", IntegerType(), False),
-        StructField("ee", ArrayType(StringType()), True), 
-        StructField("ee-type", ArrayType(StringType()), True), 
-        StructField("key",StringType(), True), 
-        StructField("mdate", DateType(), True), 
-        StructField("month", StringType(), True), 
-        StructField("note", ArrayType(StringType()), True), 
-        StructField("note-label", StringType(), True), 
-        StructField("note-type", ArrayType(StringType()), True), 
-        StructField("publtype", StringType(), True), 
-        StructField("title", StringType(), True), 
-        StructField("url", ArrayType(StringType()), True), 
-        StructField("year", IntegerType(), True), 
+    schema = StructType([ \
+        StructField(":ID", IntegerType(), False), \
+        StructField("ee", ArrayType(StringType()), True), \
+        StructField("ee-type", ArrayType(StringType()), True), \
+        StructField("key",StringType(), True), \
+        StructField("mdate", DateType(), True), \
+        StructField("month", StringType(), True), \
+        StructField("note", ArrayType(StringType()), True), \
+        StructField("note-label", StringType(), True), \
+        StructField("publtype", StringType(), True), \
+        StructField("title", StringType(), True), \
+        StructField("url", ArrayType(StringType()), True), \
+        StructField("year", IntegerType(), True), \
+        #StructField("authors_ids", ArrayType(IntegerType()), True), \
+        #StructField("journal_id", IntegerType(), True), \
+        #StructField("number", StringType(), True), \
+        #StructField("pages", StringType(), True), \
+        #StructField("volume", StringType(),True), \
     ])
-    
-    # df = spark.read.csv(ARTICLE_FINAL_PATH_EXTENDED, sep=";", header=True, inferSchema=True)
+
     articles_df = spark.createDataFrame(data = articles, schema = schema)
     articles_df.printSchema()
-    articles_df.show(truncate=False)
-    # df.printSchema()
-    # df.explain()
-    # df.show(truncate=False)
-    
-    # df = spark.read.option("header",'True').option('delimiter', ';').csv(path = ARTICLE_FINAL_PATH, schema = schema)
-    # df.printSchema()
+    articles_df.show()
     
 
 def import_journals_collection():
