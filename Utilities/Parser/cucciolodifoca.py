@@ -22,7 +22,6 @@
 #  \\_______-/     \     \  \                                                                      #
 #                   \-_-_-_-_-                                                                     #
 ####################################################################################################
-from operator import concat
 import pandas as pd
 import numpy as np
 import csv
@@ -35,16 +34,19 @@ import requests
 import names
 import lorem
 import time
+import tqdm
+import pyarrow
 
 from random_object_id import generate
-from os import system, name, path
+from os import system, name
 from os.path import isfile
 from ast import literal_eval
-from pyspark.sql.functions import col 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType, DateType
-from pyspark.sql.functions import collect_set
+from pyspark.sql.functions import collect_set, col
 from pyspark import pandas as ps
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 # Set to a default number for having the same results in the group.
 random.seed(1234)
@@ -1062,22 +1064,21 @@ def mongo_db_setup():
 ####################################################################################################
 def spark_session_handler():
     """ Handles the textual menu and the user choices for the Spark Session."""
+    spark = SparkSession.builder.getOrCreate()
     clearScreen()
     printLogo()
     
-    while(spark_operation_chosen := int(input("What operation should be performed?\n\t1. Setup dataset (N.B. : if you have already setup the dataset for Neo4J skip this step)\n\t2. Import dataset into Spark (if the dataset has not been created it will automatically perform the previous action)\n\t3. Perform example queries\n\t 10. Exit\nChoice: "))):
+    while(spark_operation_chosen := int(input("What operation should be performed?\n\t1. Setup dataset (N.B. : if you have already setup the dataset for Neo4J skip this step)\n\t2. Perform example queries\n\t 10. Exit\nChoice: "))):
         if spark_operation_chosen == 1:
             # Setup dataset operation
-            setup_spark_dataset()
+            setup_spark_dataset(spark)
         elif spark_operation_chosen == 2:
-            # Import dataset into spark
-            spark_import_procedure()
-        elif spark_operation_chosen == 3:
-            print("perform queries")
+            spark_perform_queries(spark)
         elif spark_operation_chosen == 10:
             print("quit")
+            break
         
-        time.sleep(2)
+        input("Press <ENTER> to continue...")
         clearScreen()
         printLogo()
 
@@ -1089,24 +1090,90 @@ def check_spark_dependencies():
     """
     return isfile(AUTHORS_NODE_EXTENDED_PATH) and isfile(ARTICLE_FINAL_PATH) and isfile(ARTICLE_FINAL_HEADER_PATH) and isfile(PUBLISHED_BY_FINAL_PATH) and isfile(PUBLISHER_PATH) and isfile(PUBLISHED_IN_PATH) and isfile(JOURNAL_PATH)
 
-def setup_spark_dataset():
+def setup_spark_dataset(spark: SparkSession):
     """Set up the dataset files for spark if they have not been generated previosly."""
 
     if(check_spark_dependencies()):
         print("The dataset has been already generated. Skipping...")
     else:
         neo4jSetup()                    # Our setup for spark is built upon the Neo4J one.
-                                        # TODO: maybe other operations are necessary.
+    
+    if not isfile(PARQUET_ARTICLE):
+        print("setup articles")
+        setup_articles_collection()
+    if not isfile(PARQUET_JOURNAL):
+        print("setup jounrals")
+        setup_journals_collection(spark)
+    if not isfile(PARQUET_AUTHOR):
+        print("setup authors")
+        setup_authors_collection()
 
-def spark_import_procedure():
+def spark_import_procedure(spark: SparkSession) -> tuple:
     """Imports the dataset into spark."""
+    setup_spark_dataset(spark)
 
-    # If the dataset hasn't already been setup, it cannot be imported. 
-    if(not check_spark_dependencies()):
-        print("The dataset has not been generated yet. The setup procedure will be called...")
-        setup_spark_dataset()
+    print("importing articles")
+    df_article = spark.read.parquet(PARQUET_ARTICLE)
+    print("importing jounrals")
+    df_journal = spark.read.parquet(PARQUET_JOURNAL)
+    print("importing authors")
+    df_author = spark.read.parquet(PARQUET_AUTHOR)
 
-def import_authors_collection():
+    print("start printing")
+    df_article.show(truncate=True)
+    df_journal.printSchema()
+    df_author.show(truncate=True)
+
+    return df_article, df_author, df_journal
+
+
+def spark_perform_queries(spark: SparkSession):
+    df_articles, df_authors, df_journals = spark_import_procedure(spark)
+
+    clearScreen()
+    printLogo()
+    
+    while(query_selection := int(input("What query should be performed?\n\t1. Setup dataset (N.B. : if you have already setup the dataset for Neo4J skip this step)\n\t2. Perform example queries\n\t 10. Exit\nChoice: "))):
+        if query_selection == 1:
+            # Query 1
+            perform_query_1(spark)
+        elif query_selection == 2:
+            # Query 2
+            perform_query_2(spark)
+        elif query_selection == 3:
+            # Query 3
+            perform_query_3(spark)
+        elif query_selection == 4:
+            # Query 4
+            perform_query_4(spark)
+        elif query_selection == 5:
+            # Query 5
+            perform_query_5(spark)
+        elif query_selection == 6:
+            # Query 6
+            perform_query_6(spark)
+        elif query_selection == 7:
+            # Query 7
+            perform_query_7(spark)
+        elif query_selection == 8:
+            # Query 8
+            perform_query_8(spark)
+        elif query_selection == 9:
+            # Query 9
+            perform_query_9(spark)
+        elif query_selection == 10:
+            # Query 10
+            perform_query_10(spark)
+        elif query_selection == 20:
+            print("quit")
+            break
+        
+        input("Press <ENTER> to continue...")
+        clearScreen()
+        printLogo()
+
+
+def setup_authors_collection():
     authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
     articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False, header=None)
     articles = pd.DataFrame({':START_ID' : articles.iloc[:, 0]})
@@ -1129,100 +1196,66 @@ def import_authors_collection():
     authors = pd.merge(authors, joined_df, on=":ID", how="left")
     authors["written_articles_ids"] = authors['written_articles_ids'].apply(lambda x: x if isinstance(x, list) else [])
 
-    spark = SparkSession.builder.getOrCreate()
-    schema = StructType([ \
-        StructField(":ID", IntegerType(), False), \
-        StructField("name", StringType(), False), \
-        StructField("affiliations", ArrayType(StringType()), True), \
-        StructField("homepage", StringType(), True), \
-        StructField("papercount", IntegerType(), True), \
-        StructField("citationcount", IntegerType(), True), \
-        StructField("hindex", IntegerType(), True), \
-        StructField("url", StringType(), True), \
-        StructField("ORCID", StringType(), True), \
-        StructField("written_articles", ArrayType(IntegerType()), True), \
-    ])
+    authors.to_parquet(PARQUET_AUTHOR, compression=None)
 
-    # We can see info about datatypes we uploaded in the db.
-    authors_df = spark.createDataFrame(data = authors, schema = schema)
-    authors_df.printSchema()
-    # authors_df.explain()
-    # authors_df.show()
-    authors_df.write.format('orc').mode('overwrite').parquet("df_authors")
-    return authors_df
-
-def import_articles_collection():
+def setup_articles_collection():
     # serve a inserire l'header in article.csv
-    with open(ARTICLE_FINAL_HEADER_PATH) as header_file:
-        header_list = list(csv.reader(header_file, delimiter=";"))
-        header_list = header_list[0]
-    for i in range(len(header_list)):
-        header_list[i] = header_list[i].split(":")
-        header_list[i] = header_list[i][0]
-    header_list.insert(0,":ID")
-    del header_list[1]
-    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False)
-    articles.to_csv(ARTICLE_FINAL_PATH_EXTENDED, header=header_list, sep=";", index=False)
-    
+    if not isfile(ARTICLE_FINAL_PATH_EXTENDED):
+        with open(ARTICLE_FINAL_HEADER_PATH) as header_file:
+            header_list = list(csv.reader(header_file, delimiter=";"))
+            header_list = header_list[0]
+        for i in range(len(header_list)):
+            header_list[i] = header_list[i].split(":")
+            header_list[i] = header_list[i][0]
+        header_list.insert(0,":ID")
+        del header_list[1]
+        articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False)
+        articles.to_csv(ARTICLE_FINAL_PATH_EXTENDED, header=header_list, sep=";", index=False)
     
     articles = pd.read_csv(ARTICLE_FINAL_PATH_EXTENDED, sep=";", low_memory=False)
     articles.drop(['cdate', 'note-type'], inplace=True, axis=1)
+    articles[":ID"] = articles[":ID"].astype("int32")
     articles['ee'] = articles['ee'].apply(lambda x: x.split("|") if pd.notna(x) else None)
     articles['ee-type'] = articles['ee-type'].apply(lambda x: x.split("|") if pd.notna(x) else None)
-    articles['mdate'] = articles['mdate'].apply(lambda x: datetime.strptime(x,'%Y-%m-%d') if pd.notna(x) else None)
+    articles['mdate'] = articles['mdate'].apply(lambda x: pd.to_datetime(x).date() if pd.notna(x) else None)
     articles['note'] = articles['note'].apply(lambda x: x.split("|") if pd.notna(x) else None)
     articles["url"] = articles["url"].apply(lambda x: x if pd.notna(x) else "")
     articles["url"] = articles["url"].apply(lambda x: x.split("|"))
     articles['year'] = articles['year'].fillna(-1)
     articles['year'] = articles['year'].astype('int32')
 
-    """authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";", low_memory=False, skiprows = 1, header=None)
-    authors = pd.DataFrame({':END_ID' : authors.iloc[:, 0]})"""
-    #authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
+    authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
+    authored_by = authored_by.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='authors_ids')
+    authored_by.rename(columns={':START_ID': ':ID'}, inplace=True)
 
-    """joined_df = pd.merge(authors, authored_by, on = ":END_ID") # forse non serve"""
-    #authored_by = authored_by.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='authors_ids')
-    #authored_by.rename(columns={':START_ID': ':ID'}, inplace=True)
+    articles = pd.merge(articles, authored_by, on=":ID", how="left")
+    articles["authors_ids"] = articles['authors_ids'].apply(lambda x: x if isinstance(x, list) else None)
 
-    #articles = pd.merge(articles, authored_by, on=":ID", how="left")
-    #articles["authors_ids"] = articles['authors_ids'].apply(lambda x: x if isinstance(x, list) else [])
+    published_in = pd.read_csv(PUBLISHED_IN_PATH, sep=';', low_memory=False)
+    published_in[':END_ID'] = published_in[':END_ID'].fillna(-1)
+    published_in[':END_ID'] = published_in[':END_ID'].astype('int32')
+    published_in.rename(columns={':START_ID': ':ID', ':END_ID': 'journal_id'}, inplace=True)
+    articles = pd.merge(articles, published_in, on=":ID", how="left")
+    articles['journal_id'] = articles['journal_id'].apply(lambda x: int(x) if pd.notna(x) else None)
 
-    #published_in = pd.read_csv(PUBLISHED_IN_PATH, sep=';', low_memory=False)
-    #published_in[':END_ID'] = published_in[':END_ID'].fillna(-1)
-    #published_in[':END_ID'] = published_in[':END_ID'].astype('int32')
-    #published_in.rename(columns={':START_ID': ':ID'}, inplace=True)
-    #articles = pd.merge(articles, published_in, on=":ID", how="left")
+    cite = pd.read_csv(CITE_RELATIONSHIP, sep=';', low_memory=False)
+    cite['START_ID'] = cite[':START_ID'].fillna(-1)
+    cite[':START_ID'] = cite[':START_ID'].astype('int32')
+    cite[':END_ID'] = cite[':END_ID'].fillna(-1)
+    cite[':END_ID'] = cite[':END_ID'].astype('int32')
+    cite[':START_ID'] = cite[':START_ID'].apply(lambda x: int(x))
+    cite[':END_ID'] = cite[':END_ID'].apply(lambda x: int(x))
+    citations = cite.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='citations')
+    citations.rename(columns={':START_ID': ':ID'}, inplace=True)
+    articles = pd.merge(articles, citations, on=":ID", how="left")
+    incoming_citations = cite.groupby(':END_ID')[":START_ID"].apply(list).reset_index(name='incoming_citations')
+    incoming_citations.rename(columns={':END_ID': ':ID'}, inplace=True)
+    articles = pd.merge(articles, incoming_citations, on=":ID", how="left")
 
-    spark = SparkSession.builder.getOrCreate()
-    schema = StructType([ \
-        StructField(":ID", IntegerType(), False), \
-        StructField("ee", ArrayType(StringType()), True), \
-        StructField("ee-type", ArrayType(StringType()), True), \
-        StructField("key",StringType(), True), \
-        StructField("mdate", DateType(), True), \
-        StructField("month", StringType(), True), \
-        StructField("note", ArrayType(StringType()), True), \
-        StructField("note-label", StringType(), True), \
-        StructField("publtype", StringType(), True), \
-        StructField("title", StringType(), True), \
-        StructField("url", ArrayType(StringType()), True), \
-        StructField("year", IntegerType(), True), \
-        #StructField("authors_ids", ArrayType(IntegerType()), True), \
-        #StructField("journal_id", IntegerType(), True), \
-        #StructField("number", StringType(), True), \
-        #StructField("pages", StringType(), True), \
-        #StructField("volume", StringType(),True), \
-    ])
-
-    articles_df = spark.createDataFrame(data = articles, schema = schema)
-    # articles_df.printSchema()
-    # articles_df.show()
-    articles_df.toPandas().to_parquet("df_articles.parquet")
+    articles.to_parquet(PARQUET_ARTICLE, compression=None)
     
 
-def import_journals_collection():
-    spark = SparkSession.builder.getOrCreate()
-
+def setup_journals_collection(spark: SparkSession):
     df_journal = spark.read.csv(JOURNAL_PATH, sep=";", header=True, inferSchema=True)
     df_journal = df_journal.withColumnRenamed(":ID","ISSN").withColumnRenamed("journal:string","name")
 
@@ -1254,12 +1287,40 @@ def import_journals_collection():
 
     df_journal_final = df_journal.join(df_tmp, df_journal.ISSN == df_tmp.END_ID, "left").drop(df_tmp.END_ID)
 
-    # Print detected 
-    # We can see info about datatypes we uploaded in the db.
-    df_journal_final.printSchema()
-    #df_journal_final.explain()
-    #df_journal_final.show()
-    df_journal.toPandas().to_parquet("df_journal.parquet")
+    # https://learn.microsoft.com/en-us/azure/databricks/pandas/pyspark-pandas-conversion
+    # https://stackoverflow.com/questions/70922875/how-to-convert-a-very-large-pyspark-dataframe-into-pandas
+    # https://stackoverflow.com/questions/47536123/collect-or-topandas-on-a-large-dataframe-in-pyspark-emr
+    spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+    spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+
+    esult_pdf = df_journal_final.select("*").toPandas()
+    print(esult_pdf.head())
+    esult_pdf.to_parquet(PARQUET_JOURNAL, compression=None)
+
+####################################################################################################
+#                                         SPARK QUERIES                                            #
+####################################################################################################
+def perform_query_1(spark: SparkSession):
+    print("ciao")
+def perform_query_2(spark: SparkSession):
+    print("ciao")
+def perform_query_3(spark: SparkSession):
+    print("ciao")
+def perform_query_4(spark: SparkSession):
+    print("ciao")
+def perform_query_5(spark: SparkSession):
+    print("ciao")
+def perform_query_6(spark: SparkSession):
+    print("ciao")
+def perform_query_7(spark: SparkSession):
+    print("ciao")
+def perform_query_8(spark: SparkSession):
+    print("ciao")
+def perform_query_9(spark: SparkSession):
+    print("ciao")
+def perform_query_10(spark: SparkSession):
+    print("ciao")
+
 
 ####################################################################################################
 #                                          GRAPHICS                                                #
@@ -1283,7 +1344,7 @@ def printLogo():
         #             |      \                               Leonardo Pesce                                #
         #             )       \                                                                            #
         #            /         \                                                                           #
-        #          /            )                                                                          #    
+        #          /            )                                                                          #
         #        /              |                                                                          #
         #      //             / /                                                                          #
         #    /       ___(    ,| \                                                                          #
@@ -1316,26 +1377,6 @@ def progress_bar(progress : int, total : int, custom_string: str = ""):
     bar = '▮' * percent + '-' * (100 - percent)
     
     print(f"\r|{bar}| {percent :.2f}%", end = "\r")
-
-def setup_spark():
-    """if not path.exists(PARQUET_ARTICLE):
-        import_articles_collection()"""
-    if not path.exists(PARQUET_JOURNAL):
-        import_journals_collection()
-    """if not path.exists(PARQUET_AUTHOR):
-        import_authors_collection()"""
-    
-    spark = SparkSession.builder.getOrCreate()
-
-    #df_article = spark.createDataFrame(pd.read_parquet(PARQUET_ARTICLE))
-    df_journal = spark.createDataFrame(pd.read_parquet(PARQUET_JOURNAL))
-    #df_author = spark.createDataFrame(pd.read_parquet(PARQUET_AUTHOR))
-
-    # QUERY 1
-    df_journal.printSchema()
-    df_journal.show(truncate=True)
-
-
 
 ####################################################################################################
 #                                              MAIN                                                #
@@ -1371,8 +1412,98 @@ def main():
         clearScreen()
 
 def test():
-    setup_spark()
-        
+    spark = SparkSession.builder.getOrCreate()
+    # articles = pd.read_csv(ARTICLE_FINAL_PATH_EXTENDED, sep=";", low_memory=False)
+    # articles.drop(['cdate', 'note-type'], inplace=True, axis=1)
+    # articles[":ID"] = articles[":ID"].astype("int32")
+    # articles['ee'] = articles['ee'].apply(lambda x: x.split("|") if pd.notna(x) else None)
+    # articles['ee-type'] = articles['ee-type'].apply(lambda x: x.split("|") if pd.notna(x) else None)
+    # articles['mdate'] = articles['mdate'].apply(lambda x: pd.to_datetime(x).date() if pd.notna(x) else None)
+    # articles['note'] = articles['note'].apply(lambda x: x.split("|") if pd.notna(x) else None)
+    # articles["url"] = articles["url"].apply(lambda x: x if pd.notna(x) else "")
+    # articles["url"] = articles["url"].apply(lambda x: x.split("|"))
+    # articles['year'] = articles['year'].fillna(-1)
+    # articles['year'] = articles['year'].astype('int32')
+
+    # authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
+    # authored_by = authored_by.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='authors_ids')
+    # authored_by.rename(columns={':START_ID': ':ID'}, inplace=True)
+
+    # articles = pd.merge(articles, authored_by, on=":ID", how="left")
+    # articles["authors_ids"] = articles['authors_ids'].apply(lambda x: x if isinstance(x, list) else None)
+
+    # published_in = pd.read_csv(PUBLISHED_IN_PATH, sep=';', low_memory=False)
+    # published_in[':END_ID'] = published_in[':END_ID'].fillna(-1)
+    # published_in[':END_ID'] = published_in[':END_ID'].astype('int32')
+    # published_in.rename(columns={':START_ID': ':ID', ':END_ID': 'journal_id'}, inplace=True)
+    # articles = pd.merge(articles, published_in, on=":ID", how="left")
+    # articles['journal_id'] = articles['journal_id'].apply(lambda x: int(x) if pd.notna(x) else None)
+
+    # cite = pd.read_csv(CITE_RELATIONSHIP, sep=';', low_memory=False)
+    # cite['START_ID'] = cite[':START_ID'].fillna(-1)
+    # cite[':START_ID'] = cite[':START_ID'].astype('int32')
+    # cite[':END_ID'] = cite[':END_ID'].fillna(-1)
+    # cite[':END_ID'] = cite[':END_ID'].astype('int32')
+    # cite[':START_ID'] = cite[':START_ID'].apply(lambda x: int(x))
+    # cite[':END_ID'] = cite[':END_ID'].apply(lambda x: int(x))
+    # citations = cite.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='citations')
+    # citations.rename(columns={':START_ID': ':ID'}, inplace=True)
+    # articles = pd.merge(articles, citations, on=":ID", how="left")
+    # incoming_citations = cite.groupby(':END_ID')[":START_ID"].apply(list).reset_index(name='incoming_citations')
+    # incoming_citations.rename(columns={':END_ID': ':ID'}, inplace=True)
+    # articles = pd.merge(articles, incoming_citations, on=":ID", how="left")
+
+    # schema = StructType([ \
+    #     StructField(":ID", IntegerType(), False), \
+    #     StructField("ee", ArrayType(StringType()), True), \
+    #     StructField("ee-type", ArrayType(StringType()), True), \
+    #     StructField("key",StringType(), True), \
+    #     StructField("mdate", DateType(), True), \
+    #     StructField("month", StringType(), True), \
+    #     StructField("note", ArrayType(StringType()), True), \
+    #     StructField("note-label", StringType(), True), \
+    #     StructField("publtype", StringType(), True), \
+    #     StructField("title", StringType(), True), \
+    #     StructField("url", ArrayType(StringType()), True), \
+    #     StructField("year", IntegerType(), True), \
+    #     StructField("authors_ids", ArrayType(IntegerType()), True), \
+    #     StructField("journal_id", IntegerType(), True), \
+    #     StructField("number", StringType(), True), \
+    #     StructField("pages", StringType(), True), \
+    #     StructField("volume", StringType(),True), \
+    #     StructField("citations", ArrayType(IntegerType()),True), \
+    #     StructField("incoming_citations", ArrayType(IntegerType()),True), \
+    # ])
+
+    # schema = pa.schema([
+    #     (':ID', pa.int32()),
+    #     ('ee', pa.list_(pa.string())),
+    #     ('ee-type', pa.list_(pa.string())),
+    #     ('mdate', pa.date32()),
+    #     ('month', pa.string()),
+    #     ('note', pa.list_(pa.string())),
+    #     ('note-label', pa.string()),
+    #     ('publtype', pa.string()),
+    #     ('title', pa.string()),
+    #     ('url', pa.list_(pa.string())),
+    #     ('year', pa.int32()),
+    #     ('authors_ids', pa.list_(pa.int32())),
+    #     ('journal_id', pa.int32()),
+    #     ('number', pa.string()),
+    #     ('pages', pa.string()),
+    #     ('volume', pa.string()),
+    #     ('citations', pa.list_(pa.int32())),
+    #     ('incoming_citations', pa.list_(pa.int32())),
+    # ])
+
+    # articles.to_parquet(PARQUET_ARTICLE, compression=None)
+    # articles = pq.read_table(PARQUET_ARTICLE)
+    # spark_articles = spark.createDataFrame(data = articles)
+    # spark_articles.printSchema()
+    # df_article = spark.read.parquet(PARQUET_ARTICLE)
+    # df_article.printSchema()
+    # df_article.show()
+
 if __name__ == "__main__":
     # main()
     test()
