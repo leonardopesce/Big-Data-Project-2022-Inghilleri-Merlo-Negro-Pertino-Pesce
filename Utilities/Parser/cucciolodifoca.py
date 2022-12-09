@@ -43,7 +43,7 @@ from os.path import isfile
 from ast import literal_eval
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType, DateType
-from pyspark.sql.functions import collect_set, col
+from pyspark.sql.functions import collect_set, col, expr, explode, array_contains
 from pyspark import pandas as ps
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -1116,6 +1116,7 @@ def spark_import_procedure(spark: SparkSession) -> tuple:
     df_article = spark.read.parquet(PARQUET_ARTICLE)
     df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
     df_article = df_article.withColumn("incoming_citations",col("incoming_citations").cast(ArrayType(IntegerType())))
+    df_article = df_article.withColumnRenamed(":ID", "ID")
     print("importing journals")
     df_journal = spark.read.parquet(PARQUET_JOURNAL)
     df_journal = df_journal.withColumn("NumArticles",col("NumArticles").cast(IntegerType()))
@@ -1139,13 +1140,13 @@ def spark_perform_queries(spark: SparkSession):
     while(query_selection := int(input("What query should be performed?\n\t1. Query 1\n\t2. Query 2\n\t3. Query 3\n\t4. Query 4\n\t5. Query 5\n\t6. Query 6\n\t7.Query 7\n\t8. Query 8\n\t9. Query 9\n\t10. Query 10\n\t20. Exit\nChoice: "))):
         if query_selection == 1:
             # Query 1
-            perform_query_1(spark)
+            perform_query_1(spark, df_authors, df_articles)
         elif query_selection == 2:
             # Query 2
-            perform_query_2(spark)
+            perform_query_2(spark, df_articles)
         elif query_selection == 3:
             # Query 3
-            perform_query_3(spark)
+            perform_query_3(spark, df_articles, df_authors)
         elif query_selection == 4:
             # Query 4
             perform_query_4(spark)
@@ -1297,31 +1298,117 @@ def setup_journals_collection(spark: SparkSession):
     spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
     esult_pdf = df_journal_final.select("*").toPandas()
-    print(esult_pdf.head())
     esult_pdf.to_parquet(PARQUET_JOURNAL, compression=None)
 
 ####################################################################################################
 #                                         SPARK QUERIES                                            #
 ####################################################################################################
-def perform_query_1(spark: SparkSession):
+def perform_query_1(spark: SparkSession, df_authors: ps.DataFrame, df_articles: ps.DataFrame):
+    # QUERY 1 KO
+    df_authors.filter(df_authors.name == "S. Ceri").join(df_articles, array_contains(df_authors.written_articles_ids, df_articles.ID)).show() 
+
+
+def perform_query_2(spark: SparkSession, df_articles: ps.DataFrame):
+    # QUERY 2 OK
+    df_articles.filter(df_articles.title.like("%Towards%")).limit(5).show()
+    
+def perform_query_3(spark: SparkSession, df_articles: ps.DataFrame, df_authors: ps.DataFrame):
+    """
+    # QUERY 3
+    average_citationcount = (df_authors.select(max("citationcount")) + df_authors.select(min("citationcount"))) / 2
+    df_articles.isin(flatten(concat(df_authors.filter(df_authors.citationcount > average_citationcount).select("publications"))))
+    """
     print("ciao")
-def perform_query_2(spark: SparkSession):
+    
+def perform_query_4(spark: SparkSession, df_authors: ps.DataFrame):
+    """"
+    from pyspark.sql.functions import explode
+    from pyspark.sql.functions import sum
+    exploded_df_authors = df_authors.select(df_authors.citationcount,explode(df_author
+    s.affiliations))
+    exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "affiliation")
+    exploded_df_authors.groupBy("affiliation").agg(
+    sum("citationsount").alias("Number of citations"),
+    .show(truncate = False)
+    """
     print("ciao")
-def perform_query_3(spark: SparkSession):
-    print("ciao")
-def perform_query_4(spark: SparkSession):
-    print("ciao")
+
 def perform_query_5(spark: SparkSession):
+    """"
+    QUERY 5
+    df_articles.filter(size(df_articles.incoming_citation > 20)).groupBy(df_articles.year).agg(count("*"))
+    """
     print("ciao")
+    
 def perform_query_6(spark: SparkSession):
+    """
+    QUERY 6
+    Return the year in which there are at least 20 article
+    df_articles.groupBy("year").count().filter("count >20").show(truncate = False)
+    """
     print("ciao")
 def perform_query_7(spark: SparkSession):
+    """
+    QUERY 7
+    df_articles.filter(size(df_articles.incoming_citation > 10)).groupBy(df_articles.year).agg(count("*").alias('count')).where(col("count") > 20)
+    """
     print("ciao")
 def perform_query_8(spark: SparkSession):
+    """
+    QUERY 8
+    i-10 index o g-index dovrebbero andare bene ???????????????????????????????????????
+    
+    import org.apache.spark.sql.functions.{size,col}
+    //filtro su un autore
+    authors = [ID1, ID2]
+    df_authors.filter(col("ID").isin(favourite_pizzas))
+    //esplodo l'array con gli ID delle pubblicazioni di un array
+    exploded_df_authors = df_authors.select(df_authors.name,explode(df_authors.publica
+    tions))
+    //rinonino la colonna esplosa
+    exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "publication_I
+    D")
+    //join tra autore e articolo
+    exploded_df_authors.join(df_articles, exploded_df_authors.publication_ID == df_art
+    icles.ID, "outer").distinct()
+    //filtro le riche con articoli che hanno meno di 10 citazioni
+    exploded_df_authors.filter(size(col("incoming_citations")) > 10)
+    //rappruppo per il nome dell'autore e conto le righe
+    exploded_df_authors.goupBy(df_authors.name).count()
+    """
     print("ciao")
+
 def perform_query_9(spark: SparkSession):
+    """
+    QUERY 9
+    authors = ["auth1", "auth2"]
+    authors_with_pub_citation = df_authors.filter(df_authors.name.isin(authors)).join(df_articles, expr("array_contains(df_authors.publications, df_articles.ID)"))\
+        .groupBy(df_authors.ID).collect().alias("citations")
+    authors_with_added_col = authors_with_pub_citation.withColumn("iter", sequence(max(authors_with_pub_citation.citations))
+    authors_with_added_col.select(authors_with_added_col.ID, authors_with_added_col.citations, explode(authors_with_added_col.iter))\
+        .filter(size([x for x in authors_with_added_col.citations if x > authors_with_added_col.iter]) >= authors_with_added_col.iter)
+    """
     print("ciao")
 def perform_query_10(spark: SparkSession):
+    """
+    QUERY 10
+    from pyspark.sql.functions import explode
+//esplodo le pubblicaziondi di un autore e rinomino la colonna
+exploded_df_authors = df_authors.select(df_authors.name,affiliations,explode(df_au
+thors.publications))
+exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "publication_I
+D")
+//esplodo le affiliazioni di un autore e rinomino la colonna
+exploded_df_authors = df_authors.select(df_authors.name,publication_ID,explode(aff
+iliations))
+exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "affiliation")
+//join tra articoli e journal
+df_articles.join(df_journals, df_articles.Journal == df_journals.ID, "outer")
+//join tra autori e articoli
+exploded_df_authors.join(df_articles, exploded_df_authors.publication_ID == df_art
+icles.ID, "outer")
+exploded_df_authors.groupBy("affiliation","jounal").count()
+    """
     print("ciao")
 
 
