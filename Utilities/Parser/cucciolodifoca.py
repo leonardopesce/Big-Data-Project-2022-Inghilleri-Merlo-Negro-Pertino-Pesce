@@ -1064,7 +1064,7 @@ def mongo_db_setup():
 ####################################################################################################
 def spark_session_handler():
     """ Handles the textual menu and the user choices for the Spark Session."""
-    spark = SparkSession.builder.getOrCreate()
+    spark = SparkSession.builder.master("local").appName("SMBUD2").getOrCreate()
     clearScreen()
     printLogo()
     
@@ -1122,6 +1122,8 @@ def spark_import_procedure(spark: SparkSession) -> tuple:
     df_journal = df_journal.withColumn("NumArticles",col("NumArticles").cast(IntegerType()))
     print("importing authors")
     df_author = spark.read.parquet(PARQUET_AUTHOR)
+    df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
+    df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
 
     # print("start printing")
     # df_article.printSchema()
@@ -1307,7 +1309,7 @@ def perform_query_1(spark: SparkSession, df_authors: ps.DataFrame, df_articles: 
     # QUERY 1 KO
     exploded_df_authors = df_authors.select(df_authors.name, explode(df_authors.written_articles_ids)).withColumnRenamed("col", "article_id")
     # exploded_df_authors.show()
-    exploded_df_authors.filter(exploded_df_authors.name.like("%S. Ceri%")).limit(exploded_df_authors.filter(exploded_df_authors.name.like("%S. Ceri%")).count()).join(df_articles, exploded_df_authors.article_id == df_articles.ID).show()
+    exploded_df_authors.filter(exploded_df_authors.name.like("%S. Ceri%")).join(df_articles, exploded_df_authors.article_id == df_articles.ID).show()
 
 def perform_query_2(spark: SparkSession, df_articles: ps.DataFrame):
     """Fetch the articles which have Machine Learning in their title.
@@ -1524,7 +1526,7 @@ def main():
         clearScreen()
 
 def test():
-    spark = SparkSession.builder.getOrCreate()
+    spark = SparkSession.builder.master("local").appName("SMBUD2").getOrCreate()
     df_article = spark.read.parquet(PARQUET_ARTICLE)
     df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
     df_article = df_article.withColumn("incoming_citations",col("incoming_citations").cast(ArrayType(IntegerType())))
@@ -1534,6 +1536,8 @@ def test():
     df_journal = df_journal.withColumn("NumArticles",col("NumArticles").cast(IntegerType()))
     print("importing authors")
     df_author = spark.read.parquet(PARQUET_AUTHOR)
+    df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
+    df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
     # df_author.printSchema()
     perform_query_8(spark, df_author, df_article)
 
