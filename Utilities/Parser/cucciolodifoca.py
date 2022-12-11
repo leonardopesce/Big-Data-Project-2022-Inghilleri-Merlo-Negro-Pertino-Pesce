@@ -27,16 +27,26 @@ import numpy as np
 import csv
 import json
 import jsonlines
-import datetime
+from datetime import datetime
 import glob
 import random
 import requests
 import names
 import lorem
+import time
+import tqdm
+import pyarrow
 
 from random_object_id import generate
 from os import system, name
+from os.path import isfile
 from ast import literal_eval
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType, DateType
+from pyspark.sql.functions import collect_set, col, expr, explode, array_contains, flatten, concat, sum, size, count, sequence, max, collect_list
+from pyspark import pandas as ps
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 # Set to a default number for having the same results in the group.
 random.seed(1234)
@@ -55,6 +65,7 @@ CITE_PATH = "output_cite.csv"
 CITE_RELATIONSHIP = "output_cite_relationship.csv"
 AUTHORS_DATA_PATH = "authors.csv"
 AUTHORS_NODE_PATH = "output_author.csv"
+AUTHORS_NODE_EXTENDED_PATH = "output_author_extended.csv"
 BELONG_TO_PATH = "output_belong_relationship.csv"
 PHD_THESIS_PATH = "output_phdthesis.csv"
 PUBLISHED_IN_PATH = "output_journal_published_in.csv"
@@ -67,6 +78,7 @@ PROCEEDINGS_HEADER_PATH = "output_proceedings_header.csv"
 WWW_PATH = "output_www.csv"
 INCOLLECTION_PATH = "output_incollection.csv"
 AUTHORED_BY_PATH = "output_author_authored_by.csv"
+AUTHORED_BY_FINAL_PATH = "output_author_authored_by_new.csv"
 PUBLISHED_BY_PATH = "output_publisher_published_by.csv"
 EDITED_BY_PATH = "output_editor_edited_by.csv"
 PUBLISHER_PATH = "output_publisher.csv"
@@ -75,6 +87,24 @@ REDUCED_PAPERS_PATH_JSONL = "reduced_papers.jsonl"
 PAPERS_PATH_CSV = "papers.csv"
 PAPERS_TEXT_MERGED_PATH = "papers_text.json"
 PAPERS_FINAL_PATH = "papers_full_info.json"
+ARTICLE_FINAL_PATH = "output_article_new.csv"
+BOOK_FINAL_PATH = "output_book_new.csv"
+PROCEEDINGS_FINAL_PATH = "output_proceedings_new.csv"
+PHD_THESIS_FINAL_PATH = "output_phdthesis_new.csv"
+INPROCEEDINGS_FINAL_PATH = "output_inproceedings_new.csv"
+ARTICLE_FINAL_HEADER_PATH = "output_article_header_new.csv"
+BOOK_FINAL_HEADER_PATH = "output_book_header_new.csv"
+PROCEEDINGS_FINAL_HEADER_PATH = "output_proceedings_header_new.csv"
+PHD_THESIS_FINAL_HEADER_PATH = "output_phdthesis_header_new.csv"
+INPROCEEDINGS_FINAL_HEADER_PATH = "output_inproceedings_header_new.csv"
+AUTHORED_BY_FINAL_PATH = "output_author_authored_by_new.csv"
+PUBLISHED_BY_FINAL_PATH = "output_publisher_published_by_new.csv"
+EDITED_BY_FINAL_PATH = "output_editor_edited_by_new.csv"
+JOURNAL_PATH = "output_journal.csv"
+ARTICLE_FINAL_PATH_EXTENDED = "output_article_final_extended_new.csv"
+PARQUET_ARTICLE = "df_article.parquet"
+PARQUET_JOURNAL = "df_journal.parquet"
+PARQUET_AUTHOR = "df_author.parquet"
 
 ####################################################################################################
 #                                         PARSER FUNCTIONS                                         # 
@@ -281,7 +311,7 @@ def update_authoredby_relationship():
     authoredby_frame.drop(authoredby_frame[cond].index, inplace = True)
 
     # Saving the new authoredby rels.
-    authoredby_frame.to_csv(AUTHORED_BY_PATH[:len(AUTHORED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+    authoredby_frame.to_csv(AUTHORED_BY_FINAL_PATH, sep=";", index=False)
 
 def update_publishedby_relationship():
     """Removes from the PUBLISHED_BY relationship frame, the entries which contains an incollection ID in their START_ID."""
@@ -295,7 +325,7 @@ def update_publishedby_relationship():
     publishedby_frame.drop(publishedby_frame[cond].index, inplace = True)
 
     # Saving the new publishedby rel.
-    publishedby_frame.to_csv(PUBLISHED_BY_PATH[:len(PUBLISHED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+    publishedby_frame.to_csv(PUBLISHED_BY_FINAL_PATH, sep=";", index=False)
 
 def update_editedby_relationship():
     """Removes from the EDITED_BY relationship frame, the entries which contains an homepage ID in their START_ID.
@@ -310,7 +340,7 @@ def update_editedby_relationship():
     editedby_frame.drop(editedby_frame[cond].index, inplace = True)
 
     # Saving the new publishedby rel.
-    editedby_frame.to_csv(EDITED_BY_PATH[:len(EDITED_BY_PATH)-4] + "_new.csv", sep=";", index=False)
+    editedby_frame.to_csv(EDITED_BY_FINAL_PATH, sep=";", index=False)
 
 def clean_fields(path: str, field_idx: list):
     """Given a path of a dataset csv file and a list of indexes of the corresponding dataframe to drop, then it returns a dataframe with all those columns removed.
@@ -323,9 +353,26 @@ def clean_fields(path: str, field_idx: list):
 
     # Dropping all the columns corresponding to the list of indexes passed.
     frame.drop(frame.columns[field_idx], axis=1, inplace=True)
-    if(path == ARTICLE_PATH):
+    #if(path == ARTICLE_PATH):
+    #    frame.iloc[:,13] = frame.iloc[:, 13].astype('Int64')
+    #frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False, header=False)
+    if path == ARTICLE_PATH:
         frame.iloc[:,13] = frame.iloc[:, 13].astype('Int64')
-    frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False, header=False)
+        final_path = ARTICLE_FINAL_PATH
+    elif path == BOOK_PATH:
+        final_path = BOOK_FINAL_PATH
+    elif path == PROCEEDINGS_PATH:
+        final_path = PROCEEDINGS_FINAL_PATH
+    elif path == PHD_THESIS_PATH:
+        final_path = PHD_THESIS_FINAL_PATH
+    elif path == INPROCEEDINGS_PATH:
+        final_path = INPROCEEDINGS_FINAL_PATH
+        
+    frame.to_csv(final_path, sep = ";", index=False, header=False)
+            
+
+
+
 
 def clean_fields_header(path: str, field_idx: list):
     """Given a path of a dataset headers csv file and a list of indexes of the corresponding dataframe to drop, then it returns a dataframe with all those columns removed.
@@ -336,7 +383,20 @@ def clean_fields_header(path: str, field_idx: list):
     """
     frame = pd.read_csv(path, sep = ";", low_memory=False)
     frame.drop(frame.columns[field_idx], axis=1, inplace=True)
-    frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False)
+    # frame.to_csv(path[:len(path)-4] + '_new.csv', sep = ";", index=False)
+    if path == ARTICLE_HEADER_PATH:
+        final_path = ARTICLE_FINAL_HEADER_PATH
+    elif path == BOOK_HEADER_PATH:
+        final_path = BOOK_FINAL_HEADER_PATH
+    elif path == PROCEEDINGS_HEADER_PATH:
+        final_path = PROCEEDINGS_FINAL_HEADER_PATH
+    elif path == PHD_THESIS_HEADER_PATH:
+        final_path = PHD_THESIS_FINAL_HEADER_PATH
+    elif path == INPROCEEDINGS_HEADER_PATH:
+        final_path = INPROCEEDINGS_FINAL_HEADER_PATH
+
+    frame.to_csv(final_path, sep = ";", index=False)
+
 
 def neo4jSetup():
     """Perform all the actions to clean the data and get them ready to be imported in Neo4J."""
@@ -357,7 +417,7 @@ def neo4jSetup():
 
     progress_bar(55, 100, "EXTENDING AUTHORS INFORMATION")
     authors_data = authors_additional_information()
-    authors_data.to_csv("output_author_extended.csv", sep=";", index=False)
+    authors_data.to_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";", index=False)
 
     progress_bar(70, 100, "COMPILING CITE RELATIONSHIP")
     cite_relationship = compile_relationship(merge_cite_nodes(), concatenated_publications_frame)
@@ -826,6 +886,11 @@ def fix_dates():
     with open(PAPERS_FINAL_PATH, "w") as papers_file:
         json.dump(new_papers, papers_file, indent=4)
 
+
+####################################################################################################
+#                                       MongoDB Random Setup                                       #
+####################################################################################################
+
 def mongo_db_setup_random(number_of_papers: int = 5000):
     skeleton_doc = '{"corpusid": 0, "abstract": "", "updated": {}, "externalids": {}, "url": "", "title": "", "authors": [], "venue": "", "year": 0, "referencecount": 0, "citationcount": 0, "influentialcitationcount": 0, "isopenaccess": true, "s2fieldsofstudy": [], "publicationtypes": [], "publicationdate": "", "journal": {}, "content": {"sections": [],"list_of_figures": []}, "citations": []}'
     skeleton_aut = '{"authorid": 0, "name": "", "papercount": 0, "citationcount": 0, "hindex": 0, "s2url": "", "externalids.DBLP": ""}'
@@ -840,50 +905,50 @@ def mongo_db_setup_random(number_of_papers: int = 5000):
     authors_name_list = []
     for _ in range(number_of_papers):
         authors = [gen_aut(skeleton_aut) for _ in range(random.randint(1, 5))]
-        oid_title_authors_list.append([generate(), lorem.sentence(), authors])
-        authors_name_list.append([author["name"] for author in authors])
+    oid_title_authors_list.append([generate(), lorem.sentence(), authors])
+    authors_name_list.append([author["name"] for author in authors])
 
     for i in range(number_of_papers):
         doc = json.loads(skeleton_doc)
-        doc["corpusid"] = i
-        doc["abstract"] = lorem.paragraph()
-        date = random.randint(2010, 2022)
-        doc["update"] = {"$date": f'{date}-{str(random.randint(1, 12)).zfill(2)}'
+    doc["corpusid"] = i
+    doc["abstract"] = lorem.paragraph()
+    date = random.randint(2010, 2022)
+    doc["update"] = {"$date": f'{date}-{str(random.randint(1, 12)).zfill(2)}'
                               f'-{str(random.randint(1, 28)).zfill(2)}T{str(random.randint(1, 24)).zfill(2)}'
                               f':{str(random.randint(1, 60)).zfill(2)}:{str(random.randint(1, 60)).zfill(2)}'
                               f'.000+00:00'}
-        doc["exertenalids"] = {
-            "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",                                    
-            "MAG": str(random.randint(1000000000, 9999999999)),
-            "corpusid": str(i),
-            "DOI": str(random.randint(10000000000, 99999999999))
-        }
-        doc["URL"] = f'https://www.semanticscholar.org/paper/{oid_title_authors_list[i][1].replace(" ", "")}'
-        doc["title"] = oid_title_authors_list[i][1]
-        doc["authors"] = oid_title_authors_list[i][2]
-        doc["venue"] = lorem.sentence().split(' ')[0] + lorem.sentence().split(' ')[0]
-        doc["year"] = random.randint(2009, date)
-        numRef = random.randint(1, 100)
-        doc["referencecount"] = numRef
-        numCit = random.randint(1, 10)
-        doc["citationcount"] = numCit
-        doc["influentialcitationcount"] = random.randint(0, numCit)
-        s2fieldsofstudy = ["Economics", "Computer Science", "Math", "Bio"]
-        doc["s2fieldsofstudy"] = s2fieldsofstudy[:random.randint(1, len(s2fieldsofstudy) - 1)]
-        doc["publicationtypes"] = ["JournalArticle"]
-        doc["publicationdate"] = doc["update"]
-        tmp = random.randint(1, 100)
-        doc["journal"] = {
-            "name": doc["venue"],
-            "volume": str(random.randint(1, 20)),
-            "pages": f'{tmp}-{random.randint(tmp, tmp + 10)} '
-        }
-        doc["content"]["section"] = [gen_sec(skeleton_sec, skeleton_par, skeleton_fig) for _ in
-                                    range(random.randint(1, 10))]
-        doc["content"]["list_of_figures"] = [gen_img_small(skeleton_fig_small) for _ in range(random.randint(1, 10))]
-        doc["citations"] = [gen_cit(skeleton_cit, random.randint(1, number_of_papers)) for _ in
-                            range(random.randint(1, 10))]
-        docArray.append(doc)
+    doc["exertenalids"] = {
+        "DBLP": f"jornals/{i}/{oid_title_authors_list[i][1].replace(' ', '')}",                                    # PROBLEMA QUA
+        "MAG": str(random.randint(1000000000, 9999999999)),
+        "corpusid": str(i),
+        "DOI": str(random.randint(10000000000, 99999999999))
+    }
+    doc["URL"] = f'https://www.semanticscholar.org/paper/{oid_title_authors_list[i][1].replace(" ", "")}'
+    doc["title"] = oid_title_authors_list[i][1]
+    doc["authors"] = oid_title_authors_list[i][2]
+    doc["venue"] = lorem.sentence().split(' ')[0] + lorem.sentence().split(' ')[0]
+    doc["year"] = random.randint(2009, date)
+    numRef = random.randint(1, 100)
+    doc["referencecount"] = numRef
+    numCit = random.randint(1, 10)
+    doc["citationcount"] = numCit
+    doc["influentialcitationcount"] = random.randint(0, numCit)
+    s2fieldsofstudy = ["Economics", "Computer Science", "Math", "Bio"]
+    doc["s2fieldsofstudy"] = s2fieldsofstudy[:random.randint(1, len(s2fieldsofstudy) - 1)]
+    doc["publicationtypes"] = ["JournalArticle"]
+    doc["publicationdate"] = doc["update"]
+    tmp = random.randint(1, 100)
+    doc["journal"] = {
+        "name": doc["venue"],
+        "volume": str(random.randint(1, 20)),
+        "pages": f'{tmp}-{random.randint(tmp, tmp + 10)} '
+    }
+    doc["content"]["section"] = [gen_sec(skeleton_sec, skeleton_par, skeleton_fig) for _ in
+                                 range(random.randint(1, 10))]
+    doc["content"]["list_of_figures"] = [gen_img_small(skeleton_fig_small) for _ in range(random.randint(1, 10))]
+    doc["citations"] = [gen_cit(skeleton_cit, random.randint(1, number_of_papers)) for _ in
+                        range(random.randint(1, 10))]
+    docArray.append(doc)
 
     with open(f'randomdocs.json', 'w') as file:
         json.dump(docArray, file, indent=4)
@@ -993,7 +1058,482 @@ def mongo_db_setup():
     fix_dates()
     progress_bar(100, 100)
 
+
+####################################################################################################
+#                                            Spark                                                 #
+####################################################################################################
+def spark_session_handler():
+    """Handles the textual menu and the user choices for the Spark Session."""
+    spark = SparkSession.builder.master("local").appName("SMBUD2").getOrCreate()
+    clearScreen()
+    printLogo()
     
+    while(spark_operation_chosen := int(input("What operation should be performed?\n\t1. Setup dataset (N.B. : if you have already setup the dataset for Neo4J skip this step)\n\t2. Perform example queries\n\t10. Exit\nChoice: "))):
+        if spark_operation_chosen == 1:
+            # Setup dataset operation
+            setup_spark_dataset(spark)
+        elif spark_operation_chosen == 2:
+            spark_perform_queries(spark)
+        elif spark_operation_chosen == 10:
+            break
+        else:
+            print("Invalid choice. Please specify a number from the one presented above...")
+        
+        input("Press <ENTER> to continue...")
+        clearScreen()
+        printLogo()
+
+def check_spark_dependencies() -> bool:
+    """Checks whether all the required files for spark have already been generated. Returns true if all the required files are already present in the script directory, false otherwise.
+
+    Returns:
+        bool: true if all the required files already exist in the script directory, false otherwise.
+    """
+    return isfile(AUTHORS_NODE_EXTENDED_PATH) and isfile(ARTICLE_FINAL_PATH) and isfile(ARTICLE_FINAL_HEADER_PATH) and isfile(PUBLISHED_BY_FINAL_PATH) and isfile(PUBLISHER_PATH) and isfile(PUBLISHED_IN_PATH) and isfile(JOURNAL_PATH)
+
+def setup_spark_dataset(spark: SparkSession):
+    """Set up the dataset files for spark if they have not been generated previosly.
+    
+    Args:
+        spark (SparkSession): spark session currently active.
+    """
+
+    if(check_spark_dependencies()):
+        print("Required files from Neo4J already available. Skipping...")
+    else:
+        neo4jSetup()                    # Our setup for spark is built upon the Neo4J one.
+    
+    if not isfile(PARQUET_ARTICLE):
+        print("setup articles parquet file")
+        setup_articles_collection()
+    if not isfile(PARQUET_JOURNAL):
+        print("setup jounrals parquet file")
+        setup_journals_collection(spark)
+    if not isfile(PARQUET_AUTHOR):
+        print("setup authors parquet file")
+        setup_authors_collection()
+
+def spark_import_procedure(spark: SparkSession) -> tuple:
+    """Imports datasets stored in parquet files into spark dataframes.
+
+    Args:
+        spark (SparkSession): spark session currently active.
+
+    Returns:
+        tuple: contains df_article, df_author, df_journal which are the dataframes regarding respectively articles, authors and journals data.
+    """
+    setup_spark_dataset(spark)
+
+    print("Importing articles")
+    df_article = spark.read.parquet(PARQUET_ARTICLE)
+    df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
+    df_article = df_article.withColumn("incoming_citations",col("incoming_citations").cast(ArrayType(IntegerType())))
+    df_article = df_article.withColumnRenamed(":ID", "ID")
+    print("Importing journals")
+    df_journal = spark.read.parquet(PARQUET_JOURNAL)
+    df_journal = df_journal.withColumn("NumArticles",col("NumArticles").cast(IntegerType()))
+    print("Importing authors")
+    df_author = spark.read.parquet(PARQUET_AUTHOR)
+    df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
+    df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
+
+    # print("start printing")
+    # df_article.printSchema()
+    # df_journal.printSchema()
+    # df_author.printSchema()
+
+    return df_article, df_author, df_journal
+
+
+def spark_perform_queries(spark: SparkSession):
+    """ Instanciate the main menu to perform spark queries.
+
+    Args:
+        spark (SparkSession): spark session currently active.
+    """
+    df_articles, df_authors, df_journals = spark_import_procedure(spark)
+
+    clearScreen()
+    printLogo()
+    
+    while(query_selection := int(input("""What query should be performed?\t
+1.  Take all the articles of S. Ceri.\t
+2.  Fetch the articles which have Machine Learning in their title.\t
+3.  Fetch all the articles written by the 5 authors with highest citationcount.\t
+4.  Fetch the journal containing the highest number of articles written in 2010.\t
+5.  Calculate the h-index of S. Ceri.\t
+6.  Return all the year in which there are at least 20 articles.\t
+7.  Return the years for which at least 20 articles with at least 20 ingoing citations have been published.\t
+8.  Calculate the I-10 index for S. Ceri and F. Olken.\t
+9.  Find those journals which refere to the medicine topic in their name and contains at least 10 articles with the medicine keyword in their title.\t
+10. Find those journals on which authors coming from Politecnico di Milano have published more than 5 articles.\t
+20. Exit
+Chosen number: """))):
+        if query_selection == 1:
+            # Query 1
+            perform_query_1(spark, df_authors, df_articles)
+        elif query_selection == 2:
+            # Query 2
+            perform_query_2(spark, df_articles)
+        elif query_selection == 3:
+            # Query 3
+            perform_query_3(spark, df_articles, df_authors)
+        elif query_selection == 4:
+            # Query 4
+            perform_query_4(spark, df_articles, df_journals)
+        elif query_selection == 5:
+            # Query 5
+            perform_query_5(spark, df_authors, df_articles)
+        elif query_selection == 6:
+            # Query 6
+            perform_query_6(spark, df_articles)
+        elif query_selection == 7:
+            # Query 7
+            perform_query_7(spark, df_articles)
+        elif query_selection == 8:
+            # Query 8
+            perform_query_8(spark, df_authors, df_articles)
+        elif query_selection == 9:
+            # Query 9
+            perform_query_9(spark, df_journals, df_articles)
+        elif query_selection == 10:
+            # Query 10
+            perform_query_10(spark, df_authors, df_articles, df_journals)
+        elif query_selection == 20:
+            break
+        else:
+            print("Invalid choice. Please specify a number from the one presented above...")
+        
+        input("Press <ENTER> to continue...")
+        clearScreen()
+        printLogo()
+
+def setup_authors_collection():
+    """Setup the authors collection and saves it into a parquet file in the script directory."""
+    authors = pd.read_csv(AUTHORS_NODE_EXTENDED_PATH, sep=";")
+    articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False, header=None)
+    articles = pd.DataFrame({':START_ID' : articles.iloc[:, 0]})
+    authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
+
+    authors['affiliations'] = authors['affiliations'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    authors['externalids.ORCID'] = authors['externalids.ORCID'].apply(lambda x: literal_eval(x) if pd.notna(x) else None)
+    authors['externalids.ORCID'] = authors['externalids.ORCID'].str[0]
+    authors['hindex'] = authors['hindex'].fillna(-1)
+    authors['hindex'] = authors['hindex'].astype('int32')
+    authors['papercount'] = authors['papercount'].fillna(-1)
+    authors['papercount'] = authors['papercount'].astype('int32')
+    authors['citationcount'] = authors['citationcount'].fillna(-1)
+    authors['citationcount'] = authors['citationcount'].astype('int32')
+
+    joined_df = pd.merge(articles, authored_by, on = ":START_ID")
+    joined_df = joined_df.groupby(':END_ID')[":START_ID"].apply(list).reset_index(name='written_articles_ids')
+    joined_df.rename(columns={':END_ID': ':ID'}, inplace=True)
+
+    authors = pd.merge(authors, joined_df, on=":ID", how="left")
+    authors["written_articles_ids"] = authors['written_articles_ids'].apply(lambda x: x if isinstance(x, list) else [])
+
+    authors.to_parquet(PARQUET_AUTHOR, compression=None)
+
+def setup_articles_collection():
+    """Setup the articles collection and saves it into a parquet file in the script directory."""
+    # serve a inserire l'header in article.csv
+    if not isfile(ARTICLE_FINAL_PATH_EXTENDED):
+        with open(ARTICLE_FINAL_HEADER_PATH) as header_file:
+            header_list = list(csv.reader(header_file, delimiter=";"))
+            header_list = header_list[0]
+        for i in range(len(header_list)):
+            header_list[i] = header_list[i].split(":")
+            header_list[i] = header_list[i][0]
+        header_list.insert(0,":ID")
+        del header_list[1]
+        articles = pd.read_csv(ARTICLE_FINAL_PATH, sep=";", low_memory=False)
+        articles.to_csv(ARTICLE_FINAL_PATH_EXTENDED, header=header_list, sep=";", index=False)
+    
+    articles = pd.read_csv(ARTICLE_FINAL_PATH_EXTENDED, sep=";", low_memory=False)
+    articles.drop(['cdate', 'note-type'], inplace=True, axis=1)
+    articles[":ID"] = articles[":ID"].astype("int32")
+    articles['ee'] = articles['ee'].apply(lambda x: x.split("|") if pd.notna(x) else None)
+    articles['ee-type'] = articles['ee-type'].apply(lambda x: x.split("|") if pd.notna(x) else None)
+    articles['mdate'] = articles['mdate'].apply(lambda x: pd.to_datetime(x).date() if pd.notna(x) else None)
+    articles['note'] = articles['note'].apply(lambda x: x.split("|") if pd.notna(x) else None)
+    articles["url"] = articles["url"].apply(lambda x: x if pd.notna(x) else "")
+    articles["url"] = articles["url"].apply(lambda x: x.split("|"))
+    articles['year'] = articles['year'].fillna(-1)
+    articles['year'] = articles['year'].astype('int32')
+
+    authored_by = pd.read_csv(AUTHORED_BY_FINAL_PATH, sep=";")
+    authored_by = authored_by.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='authors_ids')
+    authored_by.rename(columns={':START_ID': ':ID'}, inplace=True)
+
+    articles = pd.merge(articles, authored_by, on=":ID", how="left")
+    articles["authors_ids"] = articles['authors_ids'].apply(lambda x: x if isinstance(x, list) else None)
+
+    published_in = pd.read_csv(PUBLISHED_IN_PATH, sep=';', low_memory=False)
+    published_in[':END_ID'] = published_in[':END_ID'].fillna(-1)
+    published_in[':END_ID'] = published_in[':END_ID'].astype('int32')
+    published_in.rename(columns={':START_ID': ':ID', ':END_ID': 'journal_id'}, inplace=True)
+    articles = pd.merge(articles, published_in, on=":ID", how="left")
+    articles['journal_id'] = articles['journal_id'].apply(lambda x: int(x) if pd.notna(x) else None)
+
+    cite = pd.read_csv(CITE_RELATIONSHIP, sep=';', low_memory=False)
+    cite['START_ID'] = cite[':START_ID'].fillna(-1)
+    cite[':START_ID'] = cite[':START_ID'].astype('int32')
+    cite[':END_ID'] = cite[':END_ID'].fillna(-1)
+    cite[':END_ID'] = cite[':END_ID'].astype('int32')
+    cite[':START_ID'] = cite[':START_ID'].apply(lambda x: int(x))
+    cite[':END_ID'] = cite[':END_ID'].apply(lambda x: int(x))
+    citations = cite.groupby(':START_ID')[":END_ID"].apply(list).reset_index(name='citations')
+    citations.rename(columns={':START_ID': ':ID'}, inplace=True)
+    articles = pd.merge(articles, citations, on=":ID", how="left")
+    incoming_citations = cite.groupby(':END_ID')[":START_ID"].apply(list).reset_index(name='incoming_citations')
+    incoming_citations.rename(columns={':END_ID': ':ID'}, inplace=True)
+    articles = pd.merge(articles, incoming_citations, on=":ID", how="left")
+
+    articles.to_parquet(PARQUET_ARTICLE, compression=None)
+    
+
+def setup_journals_collection(spark: SparkSession):
+    """Setup the journals collection and saves it into a parquet file in the script directory.
+
+    Args:
+        spark (SparkSession): spark session currently active.
+    """
+    df_journal = spark.read.csv(JOURNAL_PATH, sep=";", header=True, inferSchema=True)
+    df_journal = df_journal.withColumnRenamed(":ID","ISSN").withColumnRenamed("journal:string","name")
+
+    df_journal_published_in = spark.read.csv(PUBLISHED_IN_PATH, sep=";", header=True, inferSchema=True)
+    df_journal_published_in = df_journal_published_in.withColumnRenamed(":START_ID","START_ID").withColumnRenamed(":END_ID","END_ID")
+    
+    set_journal = df_journal_published_in.select(collect_set("END_ID")).collect()[0][0]
+    
+    dataTmp = {}
+    csv_file = pd.read_csv(PUBLISHED_IN_PATH, sep=";", low_memory=False)
+
+    for i in range(1, len(csv_file.index)):
+        if csv_file.loc[i, ':END_ID'] in dataTmp.keys():
+            dataTmp[csv_file.loc[i, ':END_ID']].append(int(csv_file.loc[i, ':START_ID']))
+        else:
+            dataTmp[csv_file.loc[i, ':END_ID']] = [(int(csv_file.loc[i, ':START_ID']))]
+    
+    data = []
+    columns = StructType([
+                StructField("END_ID", IntegerType(), False),
+                StructField("NumArticles", IntegerType(), True),
+                StructField("Articles", ArrayType(IntegerType()), True)
+            ])
+
+    for el in set_journal:
+        data.append([el, len(dataTmp[el]), dataTmp[el]])
+
+    df_tmp = spark.createDataFrame(data = data, schema = columns)
+
+    df_journal_final = df_journal.join(df_tmp, df_journal.ISSN == df_tmp.END_ID, "left").drop(df_tmp.END_ID)
+
+    spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+    spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+
+    esult_pdf = df_journal_final.select("*").toPandas()
+    esult_pdf.to_parquet(PARQUET_JOURNAL, compression=None)
+
+####################################################################################################
+#                                         SPARK QUERIES                                            #
+####################################################################################################
+def perform_query_1(spark: SparkSession, df_authors: ps.DataFrame, df_articles: ps.DataFrame):
+    """ Take the articles of a given author.
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_authors (ps.DataFrame): dataframe containing authors data.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+    """
+    # QUERY 1 OK - WHERE, JOIN
+    exploded_df_authors = df_authors.select(df_authors.name, explode(df_authors.written_articles_ids)).withColumnRenamed("col", "article_id")
+    exploded_df_authors = exploded_df_authors.filter(exploded_df_authors.name.rlike("S.\sCeri$"))
+    exploded_df_authors = exploded_df_authors.join(df_articles, exploded_df_authors.article_id == df_articles.ID)
+    exploded_df_authors.select(exploded_df_authors.name, exploded_df_authors.article_id, exploded_df_authors.url).show()
+
+def perform_query_2(spark: SparkSession, df_articles: ps.DataFrame):
+    """ Fetch the articles which have Machine Learning in their title.
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+    """
+    # QUERY 2 OK - WHERE, LIMIT, LIKE
+    df_articles.filter(df_articles.title.like("%Machine Learning%")).limit(5).show()
+    
+def perform_query_3(spark: SparkSession, df_articles: ps.DataFrame, df_authors: ps.DataFrame):
+    """ Fetch all the articles written by the 5 authors with highest citationcount. 
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+        df_authors (ps.DataFrame): dataframe containing authors data.
+    """  
+    # QUERY 3 OK - WHERE, IN, Nested Query
+    top_authors = df_authors.orderBy(col("citationcount").desc()).select(col(":ID"), df_authors.citationcount, df_authors.name).withColumnRenamed(":ID", "auth_id").limit(5)
+    top_authors_ids = top_authors.select(collect_set("auth_id")).collect()[0][0]
+    explode_df_articles = df_articles.select(df_articles.ID, df_articles.title, explode(df_articles.authors_ids)).withColumnRenamed("col", "author_id")
+
+    articles_of_top_authors = explode_df_articles.filter(col("author_id").isin(top_authors_ids))
+    articles_of_top_authors = articles_of_top_authors.join(top_authors, articles_of_top_authors.author_id == top_authors.auth_id).drop("ID", "author_id", "auth_id", "citation")
+    
+    articles_of_top_authors.show()
+
+def perform_query_4(spark: SparkSession, df_articles: ps.DataFrame, df_journal: ps.DataFrame):
+    """" Fetch the journal containing the highest number of articles written in 2010.
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+        df_journals (ps.DataFrame): dataframe containing journals data.
+    """
+    # QUERY 4 OK - GROUP BY, 1 JOIN, AS 
+    articles_in_journal = df_articles.join(df_journal, df_articles.journal_id == df_journal.ISSN).filter(df_articles.year == 2010)
+    num_articles_per_year_per_journal = articles_in_journal \
+        .groupby("year", "journal_id", "name") \
+        .agg(count("*").alias("Number of Articles in Journal in 2010"))
+    best_journal_in_2010 = num_articles_per_year_per_journal.orderBy(col("Number of Articles in Journal in 2010").desc()).limit(1)
+    best_journal_in_2010.drop("journal_id").show()
+    
+def perform_query_5(spark: SparkSession, df_authors: ps.DataFrame, df_articles: ps.DataFrame):
+    """ Calculate the h-index of S. Ceri.  
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_authors (ps.DataFrame): dataframe containing authors data.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+    """
+    # QUERY 5 OK - WHERE, GROUP BY
+    author_name = "S. Ceri"
+    df_selected_authors = df_authors.filter(df_authors.name == author_name)
+    articles_written_by_selected_authors = df_selected_authors.select(df_authors.name, explode(df_authors.written_articles_ids)).withColumnRenamed("col", "publication_ID")
+    total_articles = articles_written_by_selected_authors.count()
+    articles_written_by_selected_authors_data = articles_written_by_selected_authors.join(df_articles,  articles_written_by_selected_authors.publication_ID == df_articles.ID) 
+    articles_written_by_selected_authors_data_expanded_ingoing_cit = articles_written_by_selected_authors_data.select(col("name"), col("publication_ID"), explode("incoming_citations")).withColumnRenamed("col", "inc_cit_id")
+    articles_with_num_ing_cit = articles_written_by_selected_authors_data_expanded_ingoing_cit.groupBy("name", "publication_ID").agg(count("*").alias("num_ingoing_cit"))
+    incoming_cit_num_for_articles = articles_with_num_ing_cit.select(collect_list("num_ingoing_cit")).collect()[0][0]
+    
+    indices = []
+    for i in range(total_articles, -1, -1):
+        if incoming_cit_num_for_articles.count(i) >= i:
+            indices.append(i)
+    
+    print(f"{author_name}'s h-index: {np.max(indices)}")
+
+def perform_query_6(spark: SparkSession, df_articles: ps.DataFrame): 
+    """ Return all the year in which there are at least 20 articles.
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+    """
+    # QUERY 6 OK - GROUP BY, HAVING, AS
+    df_articles.groupBy("year").agg(count("*").alias("article_per_year")).filter(col("article_per_year") > 20).show(truncate = False)
+
+
+def perform_query_7(spark: SparkSession, df_articles):
+    """ Return the years for which at least 20 articles with at least 20 ingoing citations have been published. 
+    Args:
+        spark (SparkSession): current spark session.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+    """
+    # QUERY 7 OK - WHERE, GROUP BY, HAVING, AS 
+    exploded_df_articles = df_articles.select(df_articles.ID, df_articles.year, explode(df_articles.incoming_citations))
+    exploded_df_articles = exploded_df_articles.withColumnRenamed("col", "inc_cit")
+    good_articles_ids = exploded_df_articles.groupBy(exploded_df_articles.ID).agg(count("ID").alias('num_cit')).where(col("num_cit") > 20).select(collect_set("ID")).collect()[0][0]
+    df_articles = df_articles.filter(df_articles.ID.isin(good_articles_ids))
+    df_articles.groupBy(df_articles.year).agg(count("*").alias('Articles number per year')).where(col("Articles number per year") > 20).orderBy(col("year").desc()).show()
+
+
+def perform_query_8(spark: SparkSession, df_authors: ps.DataFrame, df_articles: ps.DataFrame):
+    """ Calculate the I-10 index of S. Ceri and F. Olken.
+    
+    Args:
+        spark (SparkSession): current spark session.
+        df_authors (ps.DataFrame): dataframe containing authors data.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+    """
+    # QUERY 8 OK - WHERE, Nested Query (i.e., 2-step Queries), GROUP BY
+    
+    # filtro su un autore
+    authors = ["S. Ceri", "F. Olken"]
+    df_authors = df_authors.filter(col("name").isin(authors))
+    
+    # esplodo l'array con gli ID delle pubblicazioni di un array
+    exploded_df_authors = df_authors.select(df_authors.name, explode(df_authors.written_articles_ids))
+    
+    # rinonino la colonna esplosa
+    exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "publication_ID")
+    
+    # join tra autore e articolo
+    exploded_df_articles = df_articles.select(col("ID"), explode(df_articles.incoming_citations))
+    exploded_df_articles = exploded_df_articles.groupby(col("ID")).count().withColumnRenamed("count", "num_of_incoming_citations")
+    
+    # filtro le riche con articoli che hanno meno di 10 citazioni
+    exploded_df_articles = exploded_df_articles.filter("num_of_incoming_citations >= 10") # articles with more than 10 incoming cit.
+
+    exploded_df_authors = exploded_df_authors.join(exploded_df_articles, exploded_df_authors.publication_ID == exploded_df_articles.ID, "inner")
+    # rappruppo per il nome dell'autore e conto le righe
+    exploded_df_authors.groupBy(df_authors.name).count().withColumnRenamed("count", "I-10 index").show()
+    
+
+def perform_query_9(spark: SparkSession, df_journals: ps.DataFrame, df_articles: ps.DataFrame):
+    """ Find those journals which refere to the medicine topic in their name and contains at least 10 articles with the medicine keyword in their title.
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_journals (ps.DataFrame): dataframe containing journals data.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+    """
+    # QUERY 9 OK - WHERE, GROUP BY, HAVING, 1 JOIN
+    medical_journals = df_journals.filter(df_journals.name.like("%Medicine%"))
+    medical_journals = medical_journals.select("ISSN", "name", explode("Articles")).withColumnRenamed("col", "article_id")
+    article_of_journals_data = medical_journals.join(df_articles, medical_journals.article_id == df_articles.ID)
+    article_of_journals_data = article_of_journals_data \
+        .filter(article_of_journals_data.title.rlike("Medicine|medicine")) \
+        .groupBy("ISSN", "name") \
+        .agg(count("*").alias("Num Articles with Medicine in title in journal")) \
+        .where(col("Num Articles with Medicine in title in journal") >= 10)
+    article_of_journals_data.show()
+    
+def perform_query_10(spark: SparkSession, df_authors: ps.DataFrame, df_articles: ps.DataFrame, df_journals: ps.DataFrame):
+    """ Find those journals on which authors coming from Politecnico di Milano have published more than 5 articles.
+
+    Args:
+        spark (SparkSession): current spark session.
+        df_authors (ps.DataFrame): dataframe containing authors data.
+        df_articles (ps.DataFrame): dataframe containing articles data.
+        df_journals (ps.DataFrame): dataframe containing journals data.
+    """
+    # QUERY 10 OK - WHERE, GROUP BY, HAVING, 2 JOIN
+
+    # Explode publications of an author and rename the corresponding column.
+    exploded_df_authors = df_authors.select(df_authors.name, df_authors.affiliations, explode(df_authors.written_articles_ids))
+    exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "publication_ID")
+
+    # Explode the affiliations of the authors and rename the corresponding  column.
+    exploded_df_authors = exploded_df_authors.select(exploded_df_authors.publication_ID, explode(exploded_df_authors.affiliations))
+    exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "affiliation")
+
+    # Join articles and journals dataframes
+    df_journals = df_journals.withColumnRenamed("name", "journal_name")
+    df_articles = df_articles.join(df_journals, df_articles.journal_id == df_journals.ISSN, "inner") # I am interested only on those articles which have been published in a journal.
+    df_articles = df_articles.select(df_articles.journal_name, df_articles.ID, df_articles.journal_id)
+    
+    # Join between authors and articles.
+    exploded_df_authors = exploded_df_authors.join(df_articles, exploded_df_authors.publication_ID == df_articles.ID, "inner")
+    # exploded_df_authors.show()
+    exploded_df_authors \
+        .groupBy("affiliation", "journal_id", "journal_name") \
+        .count() \
+        .where(("count >= 5")) \
+        .withColumnRenamed("count", "Number of publication of affiliation in journal") \
+        .filter(exploded_df_authors.affiliation == "Politecnico di Milano") \
+        .drop("journal_id") \
+        .show(truncate = False)
+
+
 ####################################################################################################
 #                                          GRAPHICS                                                #
 ####################################################################################################
@@ -1016,7 +1556,7 @@ def printLogo():
         #             |      \                               Leonardo Pesce                                #
         #             )       \                                                                            #
         #            /         \                                                                           #
-        #          /            )                                                                          #    
+        #          /            )                                                                          #
         #        /              |                                                                          #
         #      //             / /                                                                          #
         #    /       ___(    ,| \                                                                          #
@@ -1062,6 +1602,7 @@ def main():
     # Main menu
     while((operation_chosen := int(input("What operation do you want to perform (N.B.: db reduction cannot be performed if the data are not previously cleaned)?\n\t1. Neo4J Setup\n\t2. MongoDB Setup\n\t3. MongoDB Random Setup\n\t4. Spark\n\t10. Exit\n Choice: "))) != 10):
         clearScreen()
+        printLogo()
 
         # Operation chosen == 1 means that the user wants to clean his data in order to import them in Neo4J.
         if(operation_chosen == 1):
@@ -1073,15 +1614,39 @@ def main():
             printLogo()
             progress_bar(0, 100)
             mongo_db_setup()
+        # Operation chosen == 3 means that the user wants to structure his data in order to import them in MongoDB by generating randomly all the properties.
         elif(operation_chosen == 3):
             printLogo()
             mongo_db_setup_random(int(input('How many papers do you want to generate? (default 5000) : ')))
+        # Operation chosen == 4 means that the user wants to access and perform queries on Spark.
+        elif(operation_chosen == 4):
+            printLogo()
+            spark_session_handler()
+        # Operation chosen == 10 means that the user wants to shut down the application.
+        elif(operation_chosen == 10):
+            print("Ending...")
+            break
+        else:
+            print("Invalid choice. Please specify a number from the one presented above...")
         
+        input("Press <ENTER> to continue...")
         clearScreen()
 
 def test():
-    generate_subsections()
+    spark = SparkSession.builder.master("local").appName("SMBUD2").getOrCreate()
+    df_article = spark.read.parquet(PARQUET_ARTICLE)
+    df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
+    df_article = df_article.withColumn("incoming_citations",col("incoming_citations").cast(ArrayType(IntegerType())))
+    df_article = df_article.withColumnRenamed(":ID", "ID")
+    print("importing journals")
+    df_journal = spark.read.parquet(PARQUET_JOURNAL)
+    df_journal = df_journal.withColumn("NumArticles",col("NumArticles").cast(IntegerType()))
+    print("importing authors")
+    df_author = spark.read.parquet(PARQUET_AUTHOR)
+    df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
+    df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
     
+    perform_query_9(spark, df_journal, df_article)
 
 if __name__ == "__main__":
     main()
