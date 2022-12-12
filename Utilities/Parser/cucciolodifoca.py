@@ -33,19 +33,15 @@ import random
 import requests
 import names
 import lorem
-import time
-import tqdm
-import pyarrow
 
 from random_object_id import generate
 from os import system, name
 from os.path import isfile
 from ast import literal_eval
 from pyspark.sql import SparkSession
-from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType, IntegerType, DateType
-from pyspark.sql.functions import collect_set, col, expr, explode, array_contains, flatten, concat, sum, size, count, sequence, max, collect_list
+from pyspark.sql.types import StructType, StructField, ArrayType, IntegerType
+from pyspark.sql.functions import collect_set, col, explode, count, collect_list
 from pyspark import pandas as ps
-import pyarrow as pa
 import pyarrow.parquet as pq
 
 # Set to a default number for having the same results in the group.
@@ -1128,6 +1124,7 @@ def spark_import_procedure(spark: SparkSession) -> tuple:
     df_article = spark.read.parquet(PARQUET_ARTICLE)
     df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
     df_article = df_article.withColumn("incoming_citations",col("incoming_citations").cast(ArrayType(IntegerType())))
+    df_article = df_article.withColumn("journal_id",col("journal_id").cast(IntegerType()))
     df_article = df_article.withColumnRenamed(":ID", "ID")
     print("Importing journals")
     df_journal = spark.read.parquet(PARQUET_JOURNAL)
@@ -1637,6 +1634,7 @@ def test():
     df_article = spark.read.parquet(PARQUET_ARTICLE)
     df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
     df_article = df_article.withColumn("incoming_citations",col("incoming_citations").cast(ArrayType(IntegerType())))
+    df_article = df_article.withColumn("journal_id",col("journal_id").cast(IntegerType()))
     df_article = df_article.withColumnRenamed(":ID", "ID")
     print("importing journals")
     df_journal = spark.read.parquet(PARQUET_JOURNAL)
@@ -1646,7 +1644,9 @@ def test():
     df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
     df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
     
-    perform_query_9(spark, df_journal, df_article)
+    df_article.printSchema()
+    df_journal.printSchema()
+    df_author.printSchema()
 
 if __name__ == "__main__":
     main()
