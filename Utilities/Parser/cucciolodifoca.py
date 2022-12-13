@@ -1162,7 +1162,7 @@ def spark_perform_queries(spark: SparkSession):
 5.  Calculate the h-index of S. Ceri.\t
 6.  Return all the year in which there are at least 20 articles.\t
 7.  Return the years for which at least 20 articles with at least 20 ingoing citations have been published.\t
-8.  Calculate the I-10 index for S. Ceri and F. Olken.\t
+8.  Calculate the I-10 index for S. Ceri.\t
 9.  Find those journals which refere to the medicine topic in their name and contains at least 10 articles with the medicine keyword in their title.\t
 10. Find those journals on which authors coming from Politecnico di Milano have published more than 5 articles.\t
 20. Exit
