@@ -1109,6 +1109,24 @@ def setup_spark_dataset(spark: SparkSession):
         print("setup authors parquet file")
         setup_authors_collection()
 
+def set_df_columns_nullable(spark, df, column_list, nullable=True):
+    """Given a spark dataframe, a list of column names and the nullability properties we want to set for each of these columns, it returns a new dataframe in which the property is correctly changed. 
+
+    Args:
+        spark (SparkSession): spark session currently active.
+        df (pyspark.DataFrame): pyspark dataframe for which we want to change the nullability property of some columns.
+        column_list (list): list of the names of the columns for which the nullability property should be changed.
+        nullable (bool, optional): set it to false if the nullability property of the columns with names in column_list should be set to False. Defaults to True.
+
+    Returns:
+        _type_: _description_
+    """
+    for struct_field in df.schema:
+        if struct_field.name in column_list:
+            struct_field.nullable = nullable
+    df_mod = spark.createDataFrame(df.rdd, df.schema)
+    return df_mod
+
 def spark_import_procedure(spark: SparkSession) -> tuple:
     """Imports datasets stored in parquet files into spark dataframes.
 
@@ -1120,6 +1138,8 @@ def spark_import_procedure(spark: SparkSession) -> tuple:
     """
     setup_spark_dataset(spark)
 
+    # We need these casts to Integer or Array<Integer> because Pandas saves parquet files with Int64 format. 
+    # Since our ids are Int32 numbers, but are read by pyspark as Int64 (long), we cast them in the right form.
     print("Importing articles")
     df_article = spark.read.parquet(PARQUET_ARTICLE)
     df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
@@ -1127,13 +1147,16 @@ def spark_import_procedure(spark: SparkSession) -> tuple:
     df_article = df_article.withColumn("authors_ids",col("authors_ids").cast(ArrayType(IntegerType())))
     df_article = df_article.withColumn("journal_id",col("journal_id").cast(IntegerType()))
     df_article = df_article.withColumnRenamed(":ID", "ID")
+    df_article = set_df_columns_nullable(spark, df_article, ["ID"], False)
     print("Importing journals")
     df_journal = spark.read.parquet(PARQUET_JOURNAL)
     df_journal = df_journal.withColumn("NumArticles",col("NumArticles").cast(IntegerType()))
+    df_journal = set_df_columns_nullable(spark, df_journal, ["ISSN"], False)
     print("Importing authors")
     df_author = spark.read.parquet(PARQUET_AUTHOR)
     df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
     df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
+    df_author = set_df_columns_nullable(spark, df_author, [":ID"], False)
 
     # print("start printing")
     # df_article.printSchema()
@@ -1672,7 +1695,6 @@ def main():
 
 def test():
     spark = SparkSession.builder.master("local").appName("SMBUD2").getOrCreate()
-    setup_journals_collection(spark)
     # df_article = spark.read.parquet(PARQUET_ARTICLE)
     # df_article = df_article.withColumn("citations",col("citations").cast(ArrayType(IntegerType())))
     # df_article = df_article.withColumn("incoming_citations",col("incoming_citations").cast(ArrayType(IntegerType())))
@@ -1683,15 +1705,19 @@ def test():
     # df_journal = spark.read.parquet(PARQUET_JOURNAL)
     # df_journal = df_journal.withColumn("NumArticles",col("NumArticles").cast(IntegerType()))
     print("importing authors")
-    # df_author = spark.read.parquet(PARQUET_AUTHOR)
-    # df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
-    # df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
+    df_author = spark.read.parquet(PARQUET_AUTHOR)
+    df_author = df_author.withColumn("written_articles_ids",col("written_articles_ids").cast(ArrayType(IntegerType())))
+    df_author = df_author.withColumn(":ID",col(":ID").cast(IntegerType()))
     
     # df_author = df_author.filter(df_author.name != "S. Ceri")
     # df_author.filter(df_author.name == "S. Ceri").show()
     # df_article.show()
     # df_journal.printSchema()
     # df_author.printSchema()
+    # print(df_author.select("*").count())
+    df_author = set_df_columns_nullable(spark, df_author, [":ID"], False)
+    df_author.printSchema()
+    df_author.show()
 
 if __name__ == "__main__":
     main()
