@@ -1378,11 +1378,13 @@ def perform_query_1(spark: SparkSession, df_authors: ps.DataFrame, df_articles: 
         df_articles (ps.DataFrame): dataframe containing articles data.
     """
     # QUERY 1 OK - WHERE, JOIN
-    # Select the S. Ceri ones and explode the Articles of S. Ceri. 
+    # Select the document whose attribute "name" is equal to "S. Ceri", explode 
+    # the field 'written_articles_ids' and rename the resulting column as 'article_id'. 
     df_selected_authors = df_authors.filter(df_authors.name.rlike("S.\sCeri$"))
     exploded_df_authors = df_selected_authors.select(df_authors.name, explode(df_authors.written_articles_ids)).withColumnRenamed("col", "article_id")
 
-    # Get the information about the Articles with a join.
+    # Perform the join between the exploded_df_authors and the df-articles 
+    # dataframes and select the fields "name", "article_id" and "url"
     exploded_df_authors = exploded_df_authors.join(df_articles, exploded_df_authors.article_id == df_articles.ID)
     exploded_df_authors.select(exploded_df_authors.name, exploded_df_authors.article_id, exploded_df_authors.url).show()
 
@@ -1405,14 +1407,16 @@ def perform_query_3(spark: SparkSession, df_articles: ps.DataFrame, df_authors: 
         df_authors (ps.DataFrame): dataframe containing authors data.
     """  
     # QUERY 3 OK - WHERE, IN, Nested Query
-    # Select the five authors with the highest number of citationcount
+    # Sort the dadatframe in descending order with respect to the 'citationcount' field and 
+    # returns the ids of the 5 authors with the highest 'citationcount' in a list
     top_authors = df_authors.orderBy(col("citationcount").desc()).select(col(":ID"), df_authors.citationcount, df_authors.name).withColumnRenamed(":ID", "auth_id").limit(5)
     top_authors_ids = top_authors.select(collect_set("auth_id")).collect()[0][0]
-    # Explode the array with the authors'ids for each article
+    # Explode the authors'ids field and rename the resulting column as 'author_id'.
     explode_df_articles = df_articles.select(df_articles.ID, df_articles.title, explode(df_articles.authors_ids)).withColumnRenamed("col", "author_id")
-    # Filter the articles written by authors that has the highest number of citationcount
+    # Filter the articles whose author_id field value is contained in the list of the 5 top authors
     articles_of_top_authors = explode_df_articles.filter(col("author_id").isin(top_authors_ids))
-    # Get the information about the authors with a join 
+    # Perform the join between the articles_of_top_authors and the top_authors dataframes and 
+    # drop the columns corresponding to the "ID", "author_id", "auth_id", "citation" fields.
     articles_of_top_authors = articles_of_top_authors.join(top_authors, articles_of_top_authors.author_id == top_authors.auth_id).drop("ID", "author_id", "auth_id", "citation")
     articles_of_top_authors.show()
 
@@ -1426,16 +1430,20 @@ def perform_query_4(spark: SparkSession, df_articles: ps.DataFrame, df_journal: 
     """
     # QUERY 4 OK - GROUP BY, 1 JOIN, AS 
     
-    # Filters article where the year is 2010
+    # Filter the articles whose field year is equal to 2010.
     df_articles = df_articles.filter(df_articles.year == 2010)
-    # Join between the articles and the journals.
+    # Perform the join between df_articles and df_journal dataframes.
     articles_in_journal = df_articles.join(df_journal, df_articles.journal_id == df_journal.ISSN)
-    # Aggregates with respect to the fields "year", "journal_id", "name" and counts how many articles have been puslished in a journal.
+    # Group with respect to the fields "year", "journal_id", "name" , counts 
+    # how many articles have been puslished in a journal and rename the resulting 
+    # column as 'Number of Articles in Journal in 2010'.
     num_articles_per_year_per_journal = articles_in_journal \
         .groupby("year", "journal_id", "name") \
         .agg(count("*").alias("Number of Articles in Journal in 2010"))
+    # Sort the dataframe in descending order with respect to the 'Number of 
+    # Articles in Journal in 2010' field and return the first document.
     best_journal_in_2010 = num_articles_per_year_per_journal.orderBy(col("Number of Articles in Journal in 2010").desc()).limit(1)
-    # Drop the Jounal id in order to have a prettier print.
+    # Drop the Jounal id column in order to have a prettier print.
     best_journal_in_2010.drop("journal_id").show()
     
 def perform_query_5(spark: SparkSession, df_authors: ps.DataFrame, df_articles: ps.DataFrame):
@@ -1447,19 +1455,21 @@ def perform_query_5(spark: SparkSession, df_authors: ps.DataFrame, df_articles: 
         df_articles (ps.DataFrame): dataframe containing articles data.
     """
     # QUERY 5 OK - WHERE, GROUP BY
-    # Select the S. Ceri ones and explode the Articles of S. Ceri. 
+    # Select the document whose attribute "name" is equal to "S. Ceri", explode the field 'written_articles_ids' 
+    # and rename the resulting column as 'article_id'. 
     author_name = "S. Ceri"
     df_selected_authors = df_authors.filter(df_authors.name == author_name)
     articles_written_by_selected_authors = df_selected_authors.select(df_authors.name, explode(df_authors.written_articles_ids)).withColumnRenamed("col", "publication_ID")
-    # Count the total articles written by the selected author
+    # Count the number of articles of the selected author
     total_articles = articles_written_by_selected_authors.count()
-    # Get the information about the written articles with a join.
+    # Perform the join between the articles_written_by_selected_authors and the df-articles dataframes.
     articles_written_by_selected_authors_data = articles_written_by_selected_authors.join(df_articles,  articles_written_by_selected_authors.publication_ID == df_articles.ID) 
-    # Explode the incoming citations for each article
+    # Select the fields "name" and "publication_id", explode the the field 
+    # 'incoming_citations' and rename the resulting column as 'inc_cit_id'.
     articles_written_by_selected_authors_data_expanded_ingoing_cit = articles_written_by_selected_authors_data.select(col("name"), col("publication_ID"), explode("incoming_citations")).withColumnRenamed("col", "inc_cit_id")
-    # Count the number of incoming citations for each article
+    # Count the number of incoming citations for each article and remane the resulting column as "num_ingoing_cit".
     articles_with_num_ing_cit = articles_written_by_selected_authors_data_expanded_ingoing_cit.groupBy("name", "publication_ID").agg(count("*").alias("num_ingoing_cit"))
-    # Return a list of articles with the number of incoming citations
+    # Return a list containing the number of incoming citations for each article of the author.
     incoming_cit_num_for_articles = articles_with_num_ing_cit.select(collect_list("num_ingoing_cit")).collect()[0][0]
     
     indices = []
@@ -1477,6 +1487,9 @@ def perform_query_6(spark: SparkSession, df_articles: ps.DataFrame):
         df_articles (ps.DataFrame): dataframe containing articles data.
     """
     # QUERY 6 OK - GROUP BY, HAVING, AS
+    # Group with respect to the fields "year" , 
+    # counts how many articles have been puslished per year and 
+    # return the years in which were published at least 20 articles.
     df_articles.groupBy("year").agg(count("*").alias("article_per_year")).filter(col("article_per_year") > 20).show(truncate = False)
 
 
@@ -1487,21 +1500,21 @@ def perform_query_7(spark: SparkSession, df_articles):
         df_articles (ps.DataFrame): dataframe containing articles data.
     """
     # QUERY 7 OK - WHERE, GROUP BY, HAVING, AS 
-    # Explode the array of the incoming citations' ids for each article
+    # Explode the field 'incoming_citations' and rename the resulting column as 'inc_cit'. 
     exploded_df_articles = df_articles.select(df_articles.ID, df_articles.year, explode(df_articles.incoming_citations))
-    # Rename the exploded column
     exploded_df_articles = exploded_df_articles.withColumnRenamed("col", "inc_cit")
-    
-    # Group with respect to the article IDs, counts the number of incoming citations for each article and returns a list of articles' IDs cited at least 20 times.
+    # Group with respect to the field 'articles.IDs', 
+    # count the number of incoming citations for each article and 
+    # return a list of articles' IDs cited at least 20 times.
     good_articles_ids = exploded_df_articles.groupBy(exploded_df_articles.ID).agg(count("ID").alias('num_cit')).where(col("num_cit") > 20).select(collect_set("ID")).collect()[0][0]
     
-    # Filters the articles by finding those whose ID is contained in the list "good_articles_ids"
+    # Filter the articles whose filed 'ID' is contained in the list "good_articles_ids"
     df_articles = df_articles.filter(df_articles.ID.isin(good_articles_ids))
     
     # Group articles according to the year of publication
-    # Counts the number of articles published for each year 
+    # Count the number of articles published for each year and rename the resulting columns as 'Articles number per year'
     # Filter the years with at least 20 publications 
-    # Sort the years according to the number of articles published
+    # Sort in descending order the years according to the number of articles published
     df_articles.groupBy(df_articles.year).agg(count("*").alias('Articles number per year')).where(col("Articles number per year") > 20).orderBy(col("year").desc()).show()
 
 
@@ -1514,22 +1527,21 @@ def perform_query_8(spark: SparkSession, df_authors: ps.DataFrame, df_articles: 
         df_articles (ps.DataFrame): dataframe containing articles data.
     """
     # QUERY 8 OK - WHERE, Nested Query (i.e., 2-step Queries), GROUP BY
-    # Filter on an author
+    # Select the document whose attribute "name" is equal to "S. Ceri"
     author_name = "S. Ceri"
     df_authors = df_authors.filter(df_authors.name == author_name)
-    # Explode the array with the IDs of the publications
+    # Explode the field 'written_articles_ids' and rename the resulting column as 'publication_ID'.
     exploded_df_authors = df_authors.select(df_authors.name, explode(df_authors.written_articles_ids))
-    # Rename the exploded column
     exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "publication_ID")
-    # Explode the array with the IDs of the incoming citations
+    # Explode the field 'incoming_citations' 
     exploded_df_articles = df_articles.select(col("ID"), explode(df_articles.incoming_citations))
-    # Group by articles' ids
+    # Group with respect to the fields "ID" and count the number of incoming citations for each article.
     exploded_df_articles = exploded_df_articles.groupby(col("ID")).count().withColumnRenamed("count", "num_of_incoming_citations")
-    # Filter rows with articles that have less than 10 citations
+    # Filter articles with at least 10 incoming citations
     exploded_df_articles = exploded_df_articles.filter("num_of_incoming_citations >= 10") # articles with more than 10 incoming cit.
-    # Join between articles and authors
+    # Perform the join between the  exploded_df_authors and the exploded_df_articles dataframes.
     exploded_df_authors = exploded_df_authors.join(exploded_df_articles, exploded_df_authors.publication_ID == exploded_df_articles.ID, "inner")
-    # Group with respect to the author's name and counts the rows
+    # Group with respect to the author's name and return the I-10 index.
     exploded_df_authors.groupBy(df_authors.name).count().withColumnRenamed("count", "I-10 index").show()
     
 
@@ -1542,16 +1554,16 @@ def perform_query_9(spark: SparkSession, df_journals: ps.DataFrame, df_articles:
         df_articles (ps.DataFrame): dataframe containing articles data.
     """
     # QUERY 9 OK - WHERE, GROUP BY, HAVING, 1 JOIN
-    # Select the Journals which contains 'Medicine' in the title.
+    # Select the Journals whose filed "name" contains the word 'Medicine'.
     medical_journals = df_journals.filter(df_journals.name.like("%Medicine%"))
-
-    # Explode the artilces written for each Journals.
+    # Explode the field 'Articles' and rename the resulting column as 'article_id'.
     medical_journals = medical_journals.select("ISSN", "name", explode("Articles")).withColumnRenamed("col", "article_id")
-
-    # Join Journal with 'Medicine' in the title and Articles.
+    # Perform the join between the medical_journals and the df_articles dataframes.
     article_of_journals_data = medical_journals.join(df_articles, medical_journals.article_id == df_articles.ID)
-    
-    # Group by Jounals in order to get the number of Articles per Journal.
+    # Filter the document whose field 'title' (of the article) contains the word 'medicine' or 'Medicine'
+    # Group with respect to the fields "ISSN" and "name" (of the journal).
+    # Count the Number of pertinent articles for each journal.
+    # Filter the journals with at least 10 pertinent articles.
     article_of_journals_data = article_of_journals_data \
         .filter(article_of_journals_data.title.rlike("Medicine|medicine")) \
         .groupBy("ISSN", "name") \
@@ -1569,22 +1581,23 @@ def perform_query_10(spark: SparkSession, df_authors: ps.DataFrame, df_articles:
         df_journals (ps.DataFrame): dataframe containing journals data.
     """
     # QUERY 10 OK - WHERE, GROUP BY, HAVING, 2 JOIN
-    # Explode publications of an author and rename the corresponding column.
+    # Explode the field 'written_articles_ids' and rename the resulting column as 'publication_ID'.
     exploded_df_authors = df_authors.select(df_authors.name, df_authors.affiliations, explode(df_authors.written_articles_ids))
     exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "publication_ID")
-
-    # Explode the affiliations of the authors and rename the corresponding  column.
+    # Explode the field 'affiliations' and rename the resulting column as 'affiliation'.
     exploded_df_authors = exploded_df_authors.select(exploded_df_authors.publication_ID, explode(exploded_df_authors.affiliations))
     exploded_df_authors = exploded_df_authors.withColumnRenamed("col", "affiliation")
-
-    # Join articles and journals dataframes
+    # Rename the column "name" as 'journal_name'.
     df_journals = df_journals.withColumnRenamed("name", "journal_name")
+    # Perform the join between the df_articles and the df_journals dataframes.
     df_articles = df_articles.join(df_journals, df_articles.journal_id == df_journals.ISSN, "inner") # I am interested only on those articles which have been published in a journal.
     df_articles = df_articles.select(df_articles.journal_name, df_articles.ID, df_articles.journal_id)
-    
-    # Join between authors and articles.
+    # Perform the join between the exploded_df_authors and the df_articles dataframes.
     exploded_df_authors = exploded_df_authors.join(df_articles, exploded_df_authors.publication_ID == df_articles.ID, "inner")
-    # Exploded_df_authors.show()
+    # Group with respect to the fields "affiliation", "journal_id" and"journal_name".
+    # Count the number of publications for each affiliation in each journal
+    # Filter the journals which contain at least 5 articles written by author from 'Politecnico di milano".
+    # Delete the column "journal_id"
     exploded_df_authors \
         .groupBy("affiliation", "journal_id", "journal_name") \
         .count() \
